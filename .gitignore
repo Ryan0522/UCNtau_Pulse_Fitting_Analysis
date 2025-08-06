@@ -1,0 +1,15 @@
+# Ignore build artifacts
+*.o
+*.out
+*.exe
+*.a
+*.so
+*.dylib
+*.log
+*.txt
+*.root
+Pulse_Analysis
+*.csv
+
+# VSCode settings (optional)
+.vscode/
