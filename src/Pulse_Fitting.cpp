@@ -49,16 +49,18 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     if (backgroundAfterUs_ > 0)
         backgroundTimes = applyTimeWindow(peTimes_, backgroundAfterUs_, backgroundAfterUs_ + 60e6);
 
-    cout << "SignalTime Event size: " << signalTimes.size() << "  |  ";
-    cout << "Background Event size: " << backgroundTimes.size() << endl;
+    cout << "SignalTime PE Event size: " << signalTimes.size() << "  |  ";
+    cout << "Background PE Event size: " << backgroundTimes.size() << endl;
     
     fitRegion(signalTimes, signalPulses_);
     fitRegion(backgroundTimes, backgroundPulses_);
 
+    cout << "SignalTime Neutron Event count: " << signalPulses_.size() << "  |  ";
+    cout << "Background Neutron Event count: " << backgroundPulses_.size() << "\n" << endl;
+
     peBackgroundRate_ = backgroundTimes.size() / 60.0;
     eventBackgroundRate_ = backgroundPulses_.size() / 60.0;
 }
-
 
 void Pulse_Fitting::extractTimes(const EventList& events) {
     vector<double> times;
