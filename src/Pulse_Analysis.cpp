@@ -4,6 +4,7 @@
 #include <TFile.h>
 #include <TTree.h>
 #include <iomanip>
+#include <set>
 #include "Pulse_Analysis.h"
 #include "Pulse_Fitting.h"
 
@@ -53,29 +54,36 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 }
 	
 int main(int argc, char **argv) {
+	Config cfg;
+	try {
+		cfg = load_config(argc, argv);
+		std::cout << "====================================" << std::endl;
+		std::cout << "Data folder: "   << cfg.data_folder   << "\n";
+        std::cout << "Output folder: " << cfg.output_folder << "\n";
+		std::cout << "Runinfo path: "  << cfg.runinfo_path  << "\n";
+		std::cout << "Good runs path: "<< cfg.good_runs_path<< "\n";
+        std::cout << "Start run: "     << cfg.start_run     << "\n";
+        std::cout << "End run: "       << cfg.end_run       << "\n";
+        std::cout << "Save to txt: "   << (cfg.save_to_txt ? "true" : "false") << "\n";
+        std::cout << "Good runs loaded: " << cfg.good_runs_set.size() << " entries\n";
+		std::cout << "====================================" << std::endl;
+	} catch (const std::exception& e) {
+		cerr << "Error starting program: " << e.what() << endl;
+		return 1;
+	}
 
-    if (argc < 7) {
-        cerr << "Error: Expected at least 6 arguemnts.\n";
-        cerr << "Usage: " << argv[0] << " ./data_folder/ ./output_folder/ ./runinfo.json\n";
-        cerr << " <startRun #> <endRun #> <save_to_txt (true/false)>\n";
-        return 1;
-    }
-   	
-    string data_folder = ensureTrailingSlash(argv[1]);
-    string output_folder = ensureTrailingSlash(argv[2]);
-    string json_filename = argv[3]; // For run info.
+	std::string data_folder   = ensureTrailingSlash(cfg.data_folder);
+    std::string output_folder = ensureTrailingSlash(cfg.output_folder);
+    int         startrun      = cfg.start_run;
+    int         endrun        = cfg.end_run;
+    bool        save_to_txt   = cfg.save_to_txt;
+	json params = cfg.runinfo_json;
+	const std::set<std::string>& good_runs = cfg.good_runs_set;
 
-    std::ifstream i(json_filename);
-    json params;
-	i >> params;
-
-   	int startrun = atoi(argv[4]);
-    int endrun = atoi(argv[5]);
-	bool save_to_txt = (string(argv[6]) == "true");
 	string run;
 	string hold;
 	vector<EventList> run_data;
-
+	
 	if (save_to_txt) {
 		cout << "** Note: converting data to text, no analysis will be performed **" << endl;
 	}
@@ -83,10 +91,12 @@ int main(int argc, char **argv) {
 	for (int z =startrun; z<endrun;z++){
 
 		string run = std::to_string(z);
-		if (params.contains(run) && params[run]["run_type"] == "production"){
-			int holdtime = params[run]["hold_time"];
-			int filltime = params[run]["fill_time"];
-			int cleantime = params[run]["clean_time"];
+		if (good_runs.find(run) == good_runs.end()) {
+			cerr << "Run " << run << " not found in good runs list. Skipping." << endl;
+			continue;
+		}
+
+		if (params.contains(run) && params[run]["run_type"] == "production") {
 			if (save_to_txt) {
 				processfile(data_folder, output_folder, run);
 			} else {
@@ -97,9 +107,11 @@ int main(int argc, char **argv) {
 				}
 				analysis_setup(run_data, params[run], output_folder);
 			}
+		} else {
+			cerr << "Run " << run << " not found or not a production run. Skipping." << endl;
 		}
 
-	};	
+	}	
 
 	return 0;
 }

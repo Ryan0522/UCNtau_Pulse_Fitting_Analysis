@@ -4,6 +4,7 @@
 #include <TFile.h>
 #include <TTree.h>
 #include <iomanip>
+#include <stdexcept>
 #include "File_Loader.h"
 
 using namespace std;
@@ -150,4 +151,57 @@ void processfile(string data_folder, string output_folder, string runnum) {
 	output_file.close();
 
     return;
+}
+
+Config load_config(int argc, char** argv, const std::string& default_cfg) {
+	Config c;
+
+	std::string cfg_path = (argc == 2 ? argv[1] : default_cfg);
+	json cfg;
+	{
+		std::ifstream f(cfg_path);
+		if (!f) throw std::runtime_error("Could not open config file: " + cfg_path);
+		f >> cfg;
+	}
+
+	if (argc >= 8) {
+        cfg["data_folder"]   = std::string(argv[1]);
+        cfg["output_folder"] = std::string(argv[2]);
+        cfg["runinfo"]       = std::string(argv[3]);
+        cfg["good_runs"]     = std::string(argv[4]);
+        cfg["start_run"]     = std::stoi(argv[5]);
+        cfg["end_run"]       = std::stoi(argv[6]);
+        cfg["save_to_txt"]   = (string(argv[7]) == "true");
+    } else if (argc != 1 && argc != 2) {
+        throw std::runtime_error(
+            "Expected 7 args in full mode.\n"
+            "Usage (config): prog [config.json]\n"
+            "Usage (full):   prog ./data/ ./out/ ./runinfo.json ./good_runs.txt <start> <end> <true|false>");
+    }
+
+	c.data_folder = cfg.value("data_folder", "../UCNtau_2022_raw_data/");
+    c.output_folder = cfg.value("output_folder", "./output/");
+    c.runinfo_path = cfg.value("runinfo", "./config/betteroutput2022.json");
+    c.good_runs_path = cfg.value("good_runs", "./config/2022runlist.txt");
+    c.start_run = cfg.value("start_run", 0);
+    c.end_run = cfg.value("end_run", 0);
+    c.save_to_txt = cfg.value("save_to_txt", false);
+
+    {
+        std::ifstream i(c.runinfo_path);
+        if (!i) throw std::runtime_error("Cannot open runinfo JSON: " + c.runinfo_path);
+        i >> c.runinfo_json;
+    }
+
+	std::set<std::string> good_runs;
+	{
+		std::ifstream grf(c.good_runs_path);
+		std::string line;
+		while (std::getline(grf, line)) {
+			if (!line.empty()) good_runs.insert(line);
+		}
+	}
+    c.good_runs_set = good_runs;
+
+	return c;
 }

@@ -16,4 +16,4 @@ source activate /projects/illinois/eng/physics/chenyliu/Ryan_ciyouh2/root
 START=$((26308 + 500 * (${SLURM_ARRAY_TASK_ID} - 1)))
 END=$((START + 500))
 
-./Pulse_Analysis ../UCNtau_2022_raw_data/ ./output/ ./config/betteroutput2022.json ./config/2022runlist.txt $START $END false
+./Pulse_Tail ../UCNtau_2022_raw_data/ ./output/ ./betteroutput2022.json $START $END

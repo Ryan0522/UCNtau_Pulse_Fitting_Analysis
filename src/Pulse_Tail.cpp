@@ -2,6 +2,10 @@
 #include "File_Loader.h"
 #include "Pulse_Fitting.h"
 #include <fstream>
+#include <TCanvas.h>
+#include <TH1D.h>
+#include <TLegend.h>
+#include <TStyle.h>
 #include <iostream>
 #include <cmath>
 #include <json.hpp>
@@ -53,7 +57,7 @@ void PlotTail(const std::vector<std::vector<double>>& tails, const std::vector<s
     out << "\n";
 
     int nBins = tails[0].size();
-    double binWidth = 1.0;
+    double binWidth = 0.1; // Assuming 0.1 us bin width
 
     for (int i = 0; i < nBins; ++i) {
         out << i * binWidth;
@@ -86,12 +90,13 @@ int main(int argc, char **argv) {
     int startrun = atoi(argv[4]);
     int endrun = atoi(argv[5]);
 
-    std::vector<string> segment_labels = {"12", "34", "56", "78"};
-    std::vector<vector<double>> pulse_tails(4, vector<double>(50, 0.0)); // 50 bins, 1us each, 0–50us
+    std::vector<std::string> segment_labels = {"12", "34", "56", "78"};
+    std::vector<std::vector<double>> pulse_tails(4, vector<double>(750, 0.0));
 
     for (int z = startrun; z < endrun; z++) {
         string run = to_string(z);
         if (params.contains(run) && params[run]["run_type"] == "production") {
+            std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(750, 0.0));
             vector<EventList> run_data = processfile(data_folder, run);
             if (run_data.empty()) {
                 cerr << "No data found for run " << run << ". Skipping." << endl;
@@ -109,14 +114,50 @@ int main(int argc, char **argv) {
                 fitter.analyze();
 
                 auto signalPulses = fitter.getSignalPulses();
-                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 1.0, 50.0); // 1us bins, 50us total
+                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 0.1, 75.0); // 1us bins, 50us total
                 for (size_t b = 0; b < tail.size(); ++b) {
+                    pulse_tails_single[seg][b] += tail[b];
                     pulse_tails[seg][b] += tail[b];
                 }
             }
+            PlotTail(pulse_tails, segment_labels, output_folder + "/tail/summed_tail_response_" + run + ".csv");
+            run_data.clear();
+            pulse_tails_single.clear();
         }
+    }    
+    TCanvas* c1 = new TCanvas("c1", "Tail Histograms", 1000, 700);
+    c1->SetGrid();
+    gStyle->SetOptStat(0);
+
+    std::vector<TH1D*> histograms;
+    std::vector<int> colors = {kRed, kBlue, kGreen + 2, kMagenta};
+    TLegend* legend = new TLegend(0.65, 0.7, 0.88, 0.88);
+    double binWidth = 0.1;
+    int nBins = pulse_tails[0].size();
+
+    for (size_t seg = 0; seg < pulse_tails.size(); ++seg) {
+        std::string name = "h" + segment_labels[seg];
+        std::string title = "Tail Segment " + segment_labels[seg];
+        TH1D* hist = new TH1D(name.c_str(), title.c_str(), nBins, 0, nBins * binWidth);
+
+        for (int i = 0; i < nBins; ++i) {
+            hist->SetBinContent(i + 1, pulse_tails[seg][i]);
+        }
+
+        hist->SetLineColor(colors[seg % colors.size()]);
+        hist->SetLineWidth(2);
+        hist->SetTitle("Summed Tail Response;Time after pulse (#mus);Counts");
+        histograms.push_back(hist);
+        legend->AddEntry(hist, ("Segment " + segment_labels[seg]).c_str(), "l");
+
+        if (seg == 0)
+            hist->Draw("HIST");
+        else
+            hist->Draw("HIST SAME");
     }
 
-    PlotTail(pulse_tails, segment_labels, output_folder + "/tail/summed_tail_response.csv");
+    legend->Draw();
+    c1->SaveAs((output_folder + "/tail_png/summed_tail_response" + to_string(startrun) + "_" + to_string(endrun) + ".png").c_str());
+
     return 0;
 }

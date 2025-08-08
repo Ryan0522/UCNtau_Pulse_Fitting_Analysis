@@ -8,6 +8,11 @@
 #include <TTree.h>
 #include <iomanip>
 #include <list>
+#include <string>
+#include <set>
+#include <json.hpp>
+
+using json = nlohmann::json;
 
 typedef struct
 {
@@ -18,6 +23,20 @@ typedef struct
     ULong64_t time;
     Double_t realtime;
 } event;
+
+typedef struct 
+{
+    std::string data_folder;
+    std::string output_folder;
+    std::string runinfo_path;
+    std::string good_runs_path;
+    int start_run;
+    int end_run;
+    bool save_to_txt;
+
+    json runinfo_json;
+    std::set<std::string> good_runs_set;
+} Config;
 
 using EventList = std::list<event>;
 
@@ -33,5 +52,7 @@ void processfile( // Writing to txt
     std::string output_folder,
     std::string runnum
 );
+
+Config load_config(int argc, char** argv, const std::string& default_cfg = "./config/default_config.json");
 
 #endif

@@ -1,0 +1,9 @@
+{
+    "data_folder": "../UCNtau_2022_raw_data/",
+    "output_folder": "./output/",
+    "runinfo": "./config/betteroutput2022.json",
+    "good_runs": "./config/2022runlist.txt",
+    "start_run": 26308,
+    "end_run": 31888,
+    "save_to_txt": false
+}
