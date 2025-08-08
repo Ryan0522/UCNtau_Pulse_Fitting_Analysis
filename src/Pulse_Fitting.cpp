@@ -2,6 +2,7 @@
 #include <numeric>
 #include <algorithm>
 #include <nlopt.hpp>
+#include <iostream>
 
 using namespace std;
 

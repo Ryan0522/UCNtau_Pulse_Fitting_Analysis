@@ -1,12 +1,11 @@
-#include <iostream>
-#include <fstream>
-#include <TH1D.h>
-#include <TFile.h>
-#include <TTree.h>
-#include <iomanip>
-#include <set>
 #include "Pulse_Analysis.h"
 #include "Pulse_Fitting.h"
+#include "File_Loader.h"
+#include <json.hpp>
+#include <iostream>
+#include <fstream>
+#include <set>
+
 
 using namespace std;
 
@@ -79,9 +78,6 @@ int main(int argc, char **argv) {
     bool        save_to_txt   = cfg.save_to_txt;
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
-
-	string run;
-	string hold;
 	vector<EventList> run_data;
 	
 	if (save_to_txt) {

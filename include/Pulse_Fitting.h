@@ -1,14 +1,12 @@
 #ifndef PULSE_FITTING_H
 #define PULSE_FITTING_H
 
+#include <tuple>
 #include <vector>
-#include <list>
+#include <map>
+#include <utility>
 #include <cmath>
-#include <iostream>
-#include <json.hpp>
-#include "Pulse_Analysis.h"
-
-using json = nlohmann::json;
+#include "File_Loader.h" // For EventList
 
 struct PDFParams {
     double ratio1, ratio2, ratio3;

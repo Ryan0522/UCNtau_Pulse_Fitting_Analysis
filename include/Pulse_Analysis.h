@@ -1,12 +1,10 @@
 #ifndef PULSE_ANALYSIS_H
 #define PULSE_ANALYSIS_H
 
-#include "TObject.h"
-#include "File_Loader.h"
 #include <string>
-#include <list>
 #include <json.hpp>
 #include <vector>
+#include "File_Loader.h" // For EventList
 
 using json = nlohmann::json;
 

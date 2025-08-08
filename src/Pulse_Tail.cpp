@@ -1,14 +1,13 @@
 #include "Pulse_Tail.h"
 #include "File_Loader.h"
 #include "Pulse_Fitting.h"
+#include <json.hpp>
 #include <fstream>
+#include <iostream>
 #include <TCanvas.h>
 #include <TH1D.h>
 #include <TLegend.h>
 #include <TStyle.h>
-#include <iostream>
-#include <cmath>
-#include <json.hpp>
 
 using json = nlohmann::json;
 
@@ -32,7 +31,7 @@ std::vector<double> accumulateTailHistogram(
 
         for (const auto& e : run_data) {
             double t = e.realtime * 1e6;
-            double dt = t - pulse_time;
+            double dt = t - (pulse_time - 5.0);
             if (dt >= 0 && dt < maxTime) {
                 int bin = static_cast<int>(dt / binWidth);
                 hist[bin] += 1.0;
@@ -73,28 +72,44 @@ void PlotTail(const std::vector<std::vector<double>>& tails, const std::vector<s
 using namespace std;
 
 int main(int argc, char **argv) {
-    if (argc < 6) {
-        std::cerr << "Error: Expected at least 5 arguments.\n";
-        std::cerr << "Usage: " << argv[0] << " ./data_folder/ ./output_folder/ ./runinfo.json <startRun #> <endRun #>\n";
-        return 1;
-    }
+    Config cfg;
+	try {
+		cfg = load_config(argc, argv);
+		std::cout << "====================================" << std::endl;
+		std::cout << "Data folder: "   << cfg.data_folder   << "\n";
+        std::cout << "Output folder: " << cfg.output_folder << "\n";
+		std::cout << "Runinfo path: "  << cfg.runinfo_path  << "\n";
+		std::cout << "Good runs path: "<< cfg.good_runs_path<< "\n";
+        std::cout << "Start run: "     << cfg.start_run     << "\n";
+        std::cout << "End run: "       << cfg.end_run       << "\n";
+        std::cout << "Good runs loaded: " << cfg.good_runs_set.size() << " entries\n";
+		std::cout << "====================================" << std::endl;
+	} catch (const std::exception& e) {
+		cerr << "Error starting program: " << e.what() << endl;
+		return 1;
+	}
 
-    std::string data_folder = ensureTrailingSlash(argv[1]);
-    std::string output_folder = ensureTrailingSlash(argv[2]);
-    std::string json_filename = argv[3];
-
-    std::ifstream i(json_filename);
-    json params;
-    i >> params;
-
-    int startrun = atoi(argv[4]);
-    int endrun = atoi(argv[5]);
+	std::string data_folder   = ensureTrailingSlash(cfg.data_folder);
+    std::string output_folder = ensureTrailingSlash(cfg.output_folder);
+    int         startrun      = cfg.start_run;
+    int         endrun        = cfg.end_run;
+    bool        save_to_txt   = cfg.save_to_txt;
+	json params = cfg.runinfo_json;
+	const std::set<std::string>& good_runs = cfg.good_runs_set;
+	vector<EventList> run_data;
 
     std::vector<std::string> segment_labels = {"12", "34", "56", "78"};
     std::vector<std::vector<double>> pulse_tails(4, vector<double>(750, 0.0));
+    int is_valid = 0;
 
     for (int z = startrun; z < endrun; z++) {
-        string run = to_string(z);
+
+        string run = std::to_string(z);
+		if (good_runs.find(run) == good_runs.end()) {
+			cerr << "Run " << run << " not found in good runs list. Skipping." << endl;
+			continue;
+		}
+
         if (params.contains(run) && params[run]["run_type"] == "production") {
             std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(750, 0.0));
             vector<EventList> run_data = processfile(data_folder, run);
@@ -123,8 +138,12 @@ int main(int argc, char **argv) {
             PlotTail(pulse_tails, segment_labels, output_folder + "/tail/summed_tail_response_" + run + ".csv");
             run_data.clear();
             pulse_tails_single.clear();
+            is_valid++;
         }
     }    
+
+    if (is_valid == 0) return 0;
+
     TCanvas* c1 = new TCanvas("c1", "Tail Histograms", 1000, 700);
     c1->SetGrid();
     gStyle->SetOptStat(0);
@@ -157,7 +176,7 @@ int main(int argc, char **argv) {
     }
 
     legend->Draw();
-    c1->SaveAs((output_folder + "/tail_png/summed_tail_response" + to_string(startrun) + "_" + to_string(endrun) + ".png").c_str());
+    c1->SaveAs((output_folder + "/graphs/summed_tail_response" + to_string(startrun) + "_" + to_string(endrun) + ".png").c_str());
 
     return 0;
 }

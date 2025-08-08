@@ -1,16 +1,11 @@
 #ifndef FILE_LOADER_H
 #define FILE_LOADER_H
 
-#include <iostream>
-#include <fstream>
-#include <TH1D.h>
-#include <TFile.h>
-#include <TTree.h>
-#include <iomanip>
 #include <list>
 #include <string>
 #include <set>
 #include <json.hpp>
+#include <Rtypes.h>
 
 using json = nlohmann::json;
 
@@ -20,8 +15,8 @@ typedef struct
     Int_t edge;
     Int_t tag;
     Int_t full;
-    ULong64_t time;
-    Double_t realtime;
+    ULong64_t time; // in ticks
+    Double_t realtime; // in seconds
 } event;
 
 typedef struct 
@@ -55,4 +50,4 @@ void processfile( // Writing to txt
 
 Config load_config(int argc, char** argv, const std::string& default_cfg = "./config/default_config.json");
 
-#endif
+#endif // FILE_LOADER_H
