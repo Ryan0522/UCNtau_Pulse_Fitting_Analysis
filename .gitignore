@@ -11,5 +11,10 @@
 Pulse_Analysis
 *.csv
 
+# Slurm/SBatch
+*.sbatch
+*.slurm
+out/
+
 # VSCode settings (optional)
 .vscode/
