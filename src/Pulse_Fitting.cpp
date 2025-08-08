@@ -7,6 +7,7 @@
 using namespace std;
 
 std::vector<double> makeLogFactorialTable(int max_k) {
+    // precompute log(k!) for small k (speed Poisson logL at low counts)
     std::vector<double> table(max_k);
     for (int k = 0; k < max_k; ++k) {
         table[k] = std::lgamma(k + 1.0);
@@ -30,9 +31,10 @@ std::vector<double> log_fact_table = makeLogFactorialTable(MAX_K);
 Pulse_Fitting::Pulse_Fitting(const EventList& events, double binWidth, double minGap)
     : binWidth_(binWidth), minGap_(minGap), fineBinWidth_(0.25),
       startAfterUs_(0), stopAfterUs_(1e12), backgroundAfterUs_(-1),
-      peBackgroundRate_(0), eventBackgroundRate_(0) {extractTimes(events);}
+      peBackgroundRate_(0), eventBackgroundRate_(0) {extractTimes(events);} // copy event.realtime to peTimes_ (us)
 
 void Pulse_Fitting::setWindow(double start_us, double stop_us) {
+    // set signal window in absolute microseconds
     startAfterUs_ = start_us;
     stopAfterUs_ = stop_us;
 }
@@ -42,7 +44,7 @@ void Pulse_Fitting::setBackgroundWindow(double start_us) {
 }
 
 void Pulse_Fitting::analyze() { // Assume 60s is the length for both the counting and the background windows
-    cout << "Event size: " << peTimes_.size() << endl;
+    cout << "Event size: " << peTimes_.size() << endl; // total PE hits loaded
 
     vector<double> signalTimes = applyTimeWindow(peTimes_, startAfterUs_, stopAfterUs_);
     vector<double> backgroundTimes;
@@ -53,8 +55,8 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     cout << "SignalTime PE Event size: " << signalTimes.size() << "  |  ";
     cout << "Background PE Event size: " << backgroundTimes.size() << endl;
     
-    fitRegion(signalTimes, signalPulses_);
-    fitRegion(backgroundTimes, backgroundPulses_);
+    fitRegion(signalTimes, signalPulses_); // parse windows, fit pulses
+    fitRegion(backgroundTimes, backgroundPulses_); // ditto for background
 
     cout << "SignalTime Neutron Event count: " << signalPulses_.size() << "  |  ";
     cout << "Background Neutron Event count: " << backgroundPulses_.size() << "\n" << endl;
@@ -64,6 +66,7 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
 }
 
 void Pulse_Fitting::extractTimes(const EventList& events) {
+    // linearize event.realtime (s) -> vector of times (us)
     vector<double> times;
     times.reserve(events.size());
     for (const auto& e : events) {
@@ -83,6 +86,7 @@ vector<double> Pulse_Fitting::applyTimeWindow(const vector<double>& times, doubl
 }
 
 tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<double>& times, int startIdx) {
+    // grow a window starting at 'startIdx' until an inter-hit gap > minGap_
     int N = static_cast<int>(times.size());
     double start = times[startIdx];
     int j = startIdx + 1;
@@ -96,7 +100,9 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
 
 bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double binWidth,
                                   double& windowWidth, int& j, double& startTime, double& endTime,
-                                  vector<int>& hist, vector<double>& xCenters) {
+                                  vector<int>& hist, vector<double>& xCenters) 
+{
+    // compute [startTime, endTime] window and bin hits into 'hist' with given binWidth
     tie(windowWidth, j, startTime, endTime) = movingWindow(times, i);
     if (windowWidth < binWidth) return false;
 
@@ -109,7 +115,7 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
         xCenters[b] = b * binWidth;
     }
 
-    for (int k = i; k < j; ++k) {
+    for (int k = i; k < j; ++k) { // fill counts per bin relative to startTime
         double t = times[k] - startTime;
         int bin = static_cast<int>(t / binWidth);
         if (bin >= 0 && bin < nBins) {
@@ -121,7 +127,9 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
 }
 
 void Pulse_Fitting::fitRegion(const vector<double>& data_us,
-                              vector<tuple<double, double, int, double, bool>>& output) {
+                              vector<tuple<double, double, int, double, bool>>& output) 
+{
+    // slide over data, window by window, fit pulses per window
     int i = 0;
     int N = static_cast<int>(data_us.size());
     int windowCount = 0;
@@ -144,7 +152,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             }
         }
 
-        vector<vector<double>> pdfLookup = generatePDFLookup(xCenters);
+        vector<vector<double>> pdfLookup = generatePDFLookup(xCenters); // shifted PDFs cache
 
         vector<double> fittedPEs, fittedDTs;
 
@@ -156,8 +164,12 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
             double pulse_time_us = startTime + fittedDTs[k] * (xCenters[1] - xCenters[0]);
-            output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1);
+            output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
+        }
+
+        if (pdfCache_.size() > 500) {
+            pdfCache_.clear();
         }
 
         windowCount++;
@@ -166,6 +178,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 }
 
 vector<double> Pulse_Fitting::analyticPDF(const vector<double>& x, int shift) {
+    // tri-exponential impulse response over bin center x; normalized to 1
     double r1 = pdfParams_.ratio1;
     double r2 = pdfParams_.ratio2;
     double r3 = pdfParams_.ratio3;
@@ -206,9 +219,10 @@ vector<double> Pulse_Fitting::analyticPDF(const vector<double>& x, int shift) {
 }
 
 vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xCenters) {
+    // build matrix: for each integer shift dx, a shifted PDF over bins
     if (xCenters.size() < 2) return {};
-
     int length = static_cast<int>(xCenters.size());
+
     double binWidth = xCenters[1] - xCenters[0];
     auto key = make_pair(length, round(binWidth * 1e6) / 1e6);
 
@@ -218,7 +232,6 @@ vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xC
     }
 
     vector<double> basePDF = analyticPDF(xCenters, 0);
-    
     vector<vector<double>> pdfLookup(length, vector<double>(length, 0.0));
     for (int dx = 0; dx < length; ++dx) {
         for (int i = dx; i < length; ++i) {
@@ -231,6 +244,7 @@ vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xC
 }
 
 double Pulse_Fitting::poissonLogLikelihood(const vector<int>& observed, const vector<double>& expected) {
+    // logL = sum_k [ k*log(lam) - lam - log(k!) ]; Stirling for large k
     double logL = 0.0;
     for (size_t i = 0; i < observed.size(); ++i) {
         double lam = expected[i] + 1e-10;
@@ -245,7 +259,9 @@ double Pulse_Fitting::poissonLogLikelihood(const vector<int>& observed, const ve
 }
 
 double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vector<int>& observed,
-                                        const vector<vector<double>>& pdfLookup, int nPulses) {
+                                        const vector<vector<double>>& pdfLookup, int nPulses) 
+{
+    // params = [PE_0..PE_{n-1}, dt_0..dt_{n-1}] ; expected = sum_i PE_i * shiftedPDF(dt_i)
     vector<double> expected(observed.size(), 0.0);
     for (int i = 0; i < nPulses; ++i) {
         double PE = params[i];
@@ -258,6 +274,7 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
 }
 
 vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thresholdFactor, int ignoreIdx) {
+    // simple gradient-based seed find; thresholdFactor in units of grad "std"
     if ((int)hist.size() <= ignoreIdx + 2) {
         return {};
     }
@@ -283,7 +300,9 @@ vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thr
 
 bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCenters,
                               const vector<vector<double>>& pdfLookup,
-                              vector<double>& fittedPEs, vector<double>& fittedDTs) {
+                              vector<double>& fittedPEs, vector<double>& fittedDTs) 
+{
+    // seed candidates from gradient; then NLOpt (bounded) to fit PE, dt
     const int minPE = 5;
     const int window = 5;
     const int ignoreIdx = 3;
@@ -332,7 +351,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         ub.push_back(static_cast<double>(xCenters.size() - 1));
     }
 
-    nlopt::opt opt(nlopt::LN_BOBYQA, params.size());
+    nlopt::opt opt(nlopt::LN_BOBYQA, params.size()); // derivative-free local
     opt.set_lower_bounds(lb);
     opt.set_upper_bounds(ub);
 
@@ -344,8 +363,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         return (*static_cast<decltype(objective)*>(data))(x, grad);
     }, &objective);
 
-    opt.set_xtol_rel(1e-4);
-    opt.set_maxeval(200);
+    opt.set_xtol_rel(1e-4); // relative tolerance
+    opt.set_maxeval(200); // iteration cap
 
     double minf;
     try {
@@ -371,6 +390,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     }
 
     if (finalPEs.size() < fittedPEs.size()) {
+        // drop sub-threshold pulses and re-fit the reduced model
         int refinedN = static_cast<int>(finalPEs.size());
         vector<double> refinedParams = finalPEs;
         refinedParams.insert(refinedParams.end(), finalDTs.begin(), finalDTs.end());

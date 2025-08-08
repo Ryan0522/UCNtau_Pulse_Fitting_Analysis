@@ -19,6 +19,7 @@ SEG_TO_FILL = {
 }
 
 def load_good_runs(path):
+    # load whitelist of run numbers (one per line); empty set => use all runs
     good = set()
     if not os.path.exists(path):
         print(f"Warning: Good runs file {path} does not exist.")
@@ -48,22 +49,22 @@ def fit_tau_profiled(counts_raw, ts):
     ts:         array-like of hold times (seconds)
     Returns (tau, dtau)
     """
-    counts = np.asarray(counts_raw, dtype=float)
+    counts = np.asarray(counts_raw, dtype=float) # y_i (background-corrected, normalized)
     ts = np.asarray(ts, dtype=float)
-    errors = np.sqrt(np.maximum(counts, 1e-9))
+    errors = np.sqrt(np.maximum(counts, 1e-9)) # heuristic σ_i after normalization 
 
     w = 1.0 / (errors**2)
 
     def chi2_for_tau(tau):
         if tau <= 0:
             return np.inf, np.nan
-        m = np.exp(-ts / tau)
+        m = np.exp(-ts / tau) # model basis for given τ
         num = np.sum(w * counts * m)
         den = np.sum(w * m * m)
         if den <= 0:
             return np.inf, np.nan
-        Ahat = num / den
-        chi2 = np.sum(w * (counts - Ahat*m)**2)
+        Ahat = num / den # profile amplitude analytically
+        chi2 = np.sum(w * (counts - Ahat*m)**2) # χ²(τ) with A=Ahat(τ)
         return chi2, Ahat
 
     res = opt.minimize(lambda x: chi2_for_tau(x[0])[0],
@@ -73,10 +74,10 @@ def fit_tau_profiled(counts_raw, ts):
     chi2_min, _ = chi2_for_tau(tau_best)
     
     # Scan around best to get Δχ²=1 band
-    span = max(50.0, 0.15 * tau_best)
+    span = max(50.0, 0.15 * tau_best) # scan window around τ*
     taus = np.linspace(max(1.0, tau_best - span), tau_best + span, 2001)
     chi2_vals = np.array([chi2_for_tau(tau)[0] for tau in taus])
-    ok = chi2_vals < (np.nanmin(chi2_vals) + 1.0)
+    ok = chi2_vals < (np.nanmin(chi2_vals) + 1.0) # Δχ²=1 condition
     if not np.any(ok):
         return tau_best, np.nan
 
@@ -88,12 +89,12 @@ def fit_tau_profiled(counts_raw, ts):
     return tau_best, dtau
 
 runinfo = pd.read_csv(RUNINFO_CSV)
-hold_times = np.sort(runinfo['Holding Time'].unique())
+hold_times = np.sort(runinfo['Holding Time'].unique()) # all unique hold times in dataset
 
 results = {}
 fillucn_sum = {}
 
-for _, r in runinfo.iterrows():
+for _, r in runinfo.iterrows(): # aggregate all runs passing filter
     run = int(r['Run Number'])
     if GOOD_RUNS and run not in GOOD_RUNS:
         continue
@@ -130,7 +131,7 @@ for _, r in runinfo.iterrows():
         
         fillucn_sum[key] += per_seg_fill[seg]
 
-plt.figure(figsize=(12, 5), dpi=160)
+plt.figure(figsize=(12, 5), dpi=160) # PE spectra by hold time
 ax1 = plt.subplot(1, 2, 1)
 ax2 = plt.subplot(1, 2, 2)
 
@@ -158,14 +159,14 @@ plt.savefig(os.path.join(GRAPH_DIR, 'pe_dist.png'))
 plt.close()
 
 thresholds = np.arange(5, 20)
-lifetime_by_seg = {}
+lifetime_by_seg = {} # seg -> (taus, dtau)
 
 plt.figure(figsize=(7, 5), dpi=160)
 for i, seg in enumerate(SEGMENTS):
     lifetimes = []
     dlifetimes = []
     for thresh in thresholds:
-        counts_per_hold = []
+        counts_per_hold = [] # list of (hold_t, normalized ocunt)
 
         for hold_t in hold_times:
             key = (hold_t, seg)
@@ -175,22 +176,22 @@ for i, seg in enumerate(SEGMENTS):
             pe = np.array(results[key]['PE'])
             bg_flag = np.array(results[key]['bg_flag'])
 
-            sig_n = np.sum((pe > thresh) & (bg_flag == 1))
-            bg_n = np.sum((pe > thresh) & (bg_flag == 0))
+            sig_n = np.sum((pe > thresh) & (bg_flag == 1)) # signal window events
+            bg_n = np.sum((pe > thresh) & (bg_flag == 0)) # background window events
 
-            corrected = sig_n - bg_n
+            corrected = sig_n - bg_n # assumes equal 60s windows
             
             denom = max(fillucn_sum.get(key, 0.0), 1.0)
             norm_count = corrected / denom
 
-            counts_per_hold.append((hold_t, norm_count))
+            counts_per_hold.append((hold_t, norm_count)) # keep (t, y) pair
 
         if len(counts_per_hold) < 2:
             lifetimes.append(np.nan)
             dlifetimes.append(np.nan)
             continue
 
-        counts_per_hold.sort(key=lambda x: x[0])
+        counts_per_hold.sort(key=lambda x: x[0]) # sort by hold time
         ts = np.array([x[0] for x in counts_per_hold], dtype=float)
         ys = np.array([x[1] for x in counts_per_hold], dtype=float)
 

@@ -6,10 +6,12 @@
 #include <fstream>
 #include <set>
 
-
 using namespace std;
 
+// Set up and run the analysis, output to csv file
 void analysis_setup(const vector<EventList> run_data, json params, string output_folder) { // Event format: <time (us), PE #, event #, window width, # of events in window>
+	
+	//define signal and background windows (us) from run parameters
 	double start = (double)params["fill_time"] + (double)params["hold_time"] + (double)params["clean_time"] + 40;
 	double stop = start + 60;
 	double bg_start = stop + 50;
@@ -26,6 +28,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	out << "Segment, Time (us), PE, Event\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
+		// run pulse fitting on each segment independently
 		cout << "Segment: " << segment_labels[seg] << endl;
 		Pulse_Fitting fitter(run_data[seg]);
 		fitter.setWindow(start * 1e6, stop * 1e6);
@@ -34,6 +37,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		auto signalPulses = fitter.getSignalPulses();
 		auto backgroundPulses = fitter.getBackgroundPulses();
 
+		// write signal pulsese (Event=1)
 		for (const auto& event : signalPulses) {
 			out << segment_labels[seg] << ", "
 				<< get<0>(event)/1e6 << ", "
@@ -41,6 +45,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 				<< "1 \n";
 		}
 
+		// write background pulses (Event=0)
 		for (const auto& event : backgroundPulses) {
 			out << segment_labels[seg] << ", "
 				<< get<0>(event)/1e6 << ", "
@@ -55,7 +60,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 int main(int argc, char **argv) {
 	Config cfg;
 	try {
-		cfg = load_config(argc, argv);
+		cfg = load_config(argc, argv); // parse CLI/config, load runinfo + good runs
 		std::cout << "====================================" << std::endl;
 		std::cout << "Data folder: "   << cfg.data_folder   << "\n";
         std::cout << "Output folder: " << cfg.output_folder << "\n";
@@ -87,6 +92,7 @@ int main(int argc, char **argv) {
 	for (int z =startrun; z<endrun;z++){
 
 		string run = std::to_string(z);
+		// skip runs not in good runs list
 		if (good_runs.find(run) == good_runs.end()) {
 			cerr << "Run " << run << " not found in good runs list. Skipping." << endl;
 			continue;
@@ -94,8 +100,10 @@ int main(int argc, char **argv) {
 
 		if (params.contains(run) && params[run]["run_type"] == "production") {
 			if (save_to_txt) {
+				// convert ROOT -> txt for this run
 				processfile(data_folder, output_folder, run);
 			} else {
+				// analyze this run and write PulseAnalysis_<run>.csv
 				run_data = processfile(data_folder, run);
 				if (run_data.empty()) {
 					cerr << "No data found for run " << run << ". Skipping analysis." << endl;

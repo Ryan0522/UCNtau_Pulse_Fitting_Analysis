@@ -9,6 +9,7 @@
 *.txt
 *.root
 Pulse_Analysis
+Pulse_Tail
 *.csv
 
 # Slurm/SBatch
