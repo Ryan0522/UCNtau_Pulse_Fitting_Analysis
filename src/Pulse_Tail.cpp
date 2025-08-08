@@ -98,7 +98,6 @@ int main(int argc, char **argv) {
     bool        save_to_txt   = cfg.save_to_txt;
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
-	vector<EventList> run_data;
 
     std::vector<std::string> segment_labels = {"12", "34", "56", "78"};
     std::vector<std::vector<double>> pulse_tails(4, vector<double>(750, 0.0)); // 75us @ 0.1us/bin
@@ -148,39 +147,52 @@ int main(int argc, char **argv) {
 
     if (is_valid == 0) return 0;
 
-    TCanvas* c1 = new TCanvas("c1", "Tail Histograms", 1000, 700);
-    c1->SetGrid();
-    gStyle->SetOptStat(0);
+    TCanvas* c1 = new TCanvas("c1", "Tail Histograms", 1200, 600);
+    c1->Divide(2, 1);
 
-    std::vector<TH1D*> histograms; // ROOT view of final cumulatie histograms
-    std::vector<int> colors = {kRed, kBlue, kGreen + 2, kMagenta};
-    TLegend* legend = new TLegend(0.65, 0.7, 0.88, 0.88);
+    gStyle->SetOptStat(0);
+    std::vector<int> colors = {kRed, kBlue, kGreen+2, kMagenta};
     double binWidth = 0.1;
     int nBins = pulse_tails[0].size();
 
+    std::vector<TH1D*> hists;
+    hists.reserve(pulse_tails.size());
     for (size_t seg = 0; seg < pulse_tails.size(); ++seg) {
-        std::string name = "h" + segment_labels[seg];
-        std::string title = "Tail Segment " + segment_labels[seg];
-        TH1D* hist = new TH1D(name.c_str(), title.c_str(), nBins, 0, nBins * binWidth); // x=[0, 75]us
-
-        for (int i = 0; i < nBins; ++i) {
-            hist->SetBinContent(i + 1, pulse_tails[seg][i]);
-        }
-
-        hist->SetLineColor(colors[seg % colors.size()]);
-        hist->SetLineWidth(2);
-        hist->SetTitle("Summed Tail Response;Time after pulse (#mu s);Counts");
-        histograms.push_back(hist);
-        legend->AddEntry(hist, ("Segment " + segment_labels[seg]).c_str(), "l");
-
-        if (seg == 0)
-            hist->Draw("HIST");
-        else
-            hist->Draw("HIST SAME");
+        std::string name  = "h" + segment_labels[seg];
+        std::string title = "Segment " + segment_labels[seg];
+        TH1D* h = new TH1D(name.c_str(), title.c_str(), nBins, 0, nBins * binWidth);
+        for (int i = 0; i < nBins; ++i) h->SetBinContent(i+1, pulse_tails[seg][i]);
+        h->SetLineColor(colors[seg % colors.size()]);
+        h->SetLineWidth(2);
+        h->GetXaxis()->SetTitle("Time after pulse (#mu s)");
+        h->GetYaxis()->SetTitle("Counts");
+        hists.push_back(h);
     }
 
-    legend->Draw();
-    c1->SaveAs((output_folder + "/graphs/summed_tail_response" + to_string(startrun) + "_" + to_string(endrun) + ".png").c_str());
+    // ---- Pad 1: linear ----
+    c1->cd(1);
+    gPad->SetGrid();
+    TLegend* leg1 = new TLegend(0.65, 0.70, 0.88, 0.88);
+    for (size_t i = 0; i < hists.size(); ++i) {
+        if (i == 0) hists[i]->SetTitle("Summed Tail Response (linear)");
+        hists[i]->Draw(i == 0 ? "HIST" : "HIST SAME");
+        leg1->AddEntry(hists[i], ("Segment " + segment_labels[i]).c_str(), "l");
+    }
+    leg1->Draw();
 
+    // ---- Pad 2: log ----
+    c1->cd(2);
+    gPad->SetGrid();
+    gPad->SetLogy();  // log-scale y-axis
+    TLegend* leg2 = new TLegend(0.65, 0.70, 0.88, 0.88);
+    for (size_t i = 0; i < hists.size(); ++i) {
+        if (i == 0) hists[i]->SetTitle("Summed Tail Response (log y)");
+        hists[i]->Draw(i == 0 ? "HIST" : "HIST SAME");
+        leg2->AddEntry(hists[i], ("Segment " + segment_labels[i]).c_str(), "l");
+    }
+    leg2->Draw();
+
+    c1->SaveAs((output_folder + "/graphs/summed_tail_response" +
+                std::to_string(startrun) + "_" + std::to_string(endrun) + ".png").c_str());
     return 0;
 }

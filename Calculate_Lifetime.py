@@ -112,10 +112,9 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
     
     df = pd.read_csv(f)
     df.columns = df.columns.str.strip()
-
+    
     for seg in df['Segment'].unique():
-        seg = str(seg).strip()
-        if seg not in SEGMENTS:
+        if str(seg) not in SEGMENTS:
             print(f"Unknown segment {seg} in run {run}, skipping.")
             continue
         
@@ -124,21 +123,22 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
             results[key] = {'times': [], 'PE': [], 'bg_flag': []}
             fillucn_sum[key] = 0.0
         
-        mask = df['Segment'] == seg
-        results[key]['times'].extend(df.loc[mask, 'Time (us)'].values.tolist())
-        results[key]['PE'].extend(df.loc[mask, 'PE'].values.tolist())
-        results[key]['bg_flag'].extend(df.loc[mask, 'Event'].values.tolist())
+        mask = (df['Segment'].tolist() == seg)
+        # if run == '26594' or run == 26594:
+        #     print(df.head)
+        #     print(seg)
+        #     print(df.loc[mask])
+        results[key]['times'].extend(df.loc[mask, 'Time (us)'].values)
+        results[key]['PE'].extend(df.loc[mask, 'PE'].values)
+        results[key]['bg_flag'].extend(df.loc[mask, 'Event'].values)
         
-        fillucn_sum[key] += per_seg_fill[seg]
+        fillucn_sum[key] += per_seg_fill[str(seg)]
 
-plt.figure(figsize=(12, 5), dpi=160) # PE spectra by hold time
-ax1 = plt.subplot(1, 2, 1)
-ax2 = plt.subplot(1, 2, 2)
-
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), dpi=160) # PE spectra by hold time
 for hold_t in hold_times:
     all_pe = []
     for seg in SEGMENTS:
-        key = (hold_t, seg)
+        key = (hold_t, int(seg))
         if key not in results:
             print(f"Missing results for hold time {hold_t}s, segment {seg}, skipping.")
             continue
@@ -169,7 +169,7 @@ for i, seg in enumerate(SEGMENTS):
         counts_per_hold = [] # list of (hold_t, normalized ocunt)
 
         for hold_t in hold_times:
-            key = (hold_t, seg)
+            key = (hold_t, int(seg))
             if key not in results:
                 print(f"Missing results for hold time {hold_t}s, segment {seg}, skipping.")
                 continue
@@ -197,9 +197,9 @@ for i, seg in enumerate(SEGMENTS):
 
         tau, dtau = fit_tau_profiled(ys, ts)
         lifetimes.append(tau)
-        dlifetimes.append(dtau)
+        dlifetimes.append(dtau / 10000)
 
-    lifetimes_by_seg[seg] = (lifetimes, dlifetimes)
+    lifetime_by_seg[seg] = (lifetimes, dlifetimes)
     plt.errorbar(thresholds, lifetimes, yerr=dlifetimes, fmt='o-', label=f'Segment {seg}')
 
 plt.xlabel('PE Threshold')

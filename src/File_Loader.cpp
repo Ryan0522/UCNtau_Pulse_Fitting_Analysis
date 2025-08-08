@@ -15,9 +15,7 @@ string ensureTrailingSlash(const string& folder) {
     if (!folder.empty() && folder.back() != '/') {
         return folder + "/";
     }
-
     return folder;
-
 }
 
 // process ROOT filename for this run and return PE timestamps for each PMT pair
@@ -56,19 +54,16 @@ vector<EventList> processfile(string data_folder, string runnum) {
 		return {};
 	}
 	
-	// estimate run duration
+	/** 
+	// estimate run duration (commented out to speed up runtime)
 	double run_duration = tems->GetMaximum("time");
 	double backup_run_duration = tmcs_0->GetMaximum("realtime");
-    if(run_duration < 0 and backup_run_duration >0){
-		run_duration = backup_run_duration;
-	}
-	else if(run_duration < 0){
-		run_duration = 2200;
-	}
-	else if(run_duration > 3000 and backup_run_duration < 3000){
-		run_duration = backup_run_duration;
-	};
+    if (run_duration < 0 and backup_run_duration < 0) run_duration = backup_run_duration;
+	else if (run_duration < 0) run_duration = 2200;
+	else if (run_duration > 3000 and backup_run_duration < 3000) run_duration = backup_run_duration;
+
 	cout << runnum << " final run duration = " << run_duration << endl;
+	*/
 
 	// accumulate events into 4 segment lists
     EventList PMT12, PMT34, PMT1112, PMT1314;
