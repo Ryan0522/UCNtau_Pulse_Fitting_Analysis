@@ -8,15 +8,18 @@ INCLUDE_JSON = "/projects/illinois/eng/physics/chenyliu/Ryan_ciyouh2/UCNtau_Puls
 CXXFLAGS = -Iinclude -I$(INCLUDE_JSON) -g
 LDFLAGS = $(ROOT_CFLAGS) $(ROOT_LIBS) $(NLOPT_LIBS)
 
+PROF_CXXFLAGS = $(CXXFLAGS) -pg -O2 -fno-pie
+PROF_LDFLAGS  = $(LDFLAGS)  -pg -no-pie
+
 .DEFAULT_GOAL := Pulse_Analysis
 
 Pulse_Analysis:  src/File_Loader.cpp src/Pulse_Analysis.cpp src/Pulse_Fitting.cpp \
 			include/File_Loader.h include/Pulse_Analysis.h include/Pulse_Fitting.h
 	$(CXX) -o $@ src/File_Loader.cpp src/Pulse_Analysis.cpp src/Pulse_Fitting.cpp $(CXXFLAGS) $(LDFLAGS)
 
-Runtime_Analysis_: src/File_Loader.cpp src/Pulse_Analysis.cpp src/Pulse_Fitting.cpp \
+Runtime_Analysis: src/File_Loader.cpp src/Pulse_Analysis.cpp src/Pulse_Fitting.cpp \
 			include/File_Loader.h include/Pulse_Analysis.h include/Pulse_Fitting.h
-	$(CXX) -o $@ src/File_Loader.cpp src/Pulse_Analysis.cpp src/Pulse_Fitting.cpp -pg -O2 -g $(CXXFLAGS) $(LDFLAGS)
+	$(CXX) -o $@ src/File_Loader.cpp src/Pulse_Analysis.cpp src/Pulse_Fitting.cpp $(PROF_CXXFLAGS) $(PROF_LDFLAGS)
 
 Pulse_Tail: src/File_Loader.cpp src/Pulse_Tail.cpp src/Pulse_Fitting.cpp \
             include/File_Loader.h include/Pulse_Tail.h include/Pulse_Fitting.h

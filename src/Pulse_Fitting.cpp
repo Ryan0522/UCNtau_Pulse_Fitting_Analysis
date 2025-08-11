@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <nlopt.hpp>
 #include <iostream>
+#include <limits>
 
 using namespace std;
 
@@ -90,11 +91,20 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
     int N = static_cast<int>(times.size());
     double start = times[startIdx];
     int j = startIdx + 1;
+
     while (j < N && (times[j] - times[j - 1]) <= minGap_) {
         ++j;
     }
-    double end = times[j - 1];
-    double windowWidth = end - start;
+
+    // previously: double end = times[j - 1]; // August 6th 2025
+    // pad by minGap_ so the histogram includes explicit zeros after the last hit // August 10th 2025
+    const double t_last = times[j - 1];
+    const double nextHit = (j < N ? times[j] : numeric_limits<double>::infinity());
+    const double end_pad = t_last + minGap_;
+    const double cap_by_next = std::isfinite(nextHit) ? nextafter(nextHit, -numeric_limits<double>::infinity()) : end_pad;
+    const double end = std::min(end_pad, cap_by_next);
+
+    const double windowWidth = end - start;
     return make_tuple(windowWidth, j, start, end);
 }
 
