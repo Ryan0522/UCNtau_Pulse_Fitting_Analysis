@@ -10,6 +10,8 @@
 *.root
 Pulse_Analysis
 Pulse_Tail
+Runtime_Analysis
+Plot_PDFs
 *.csv
 
 # Slurm/SBatch

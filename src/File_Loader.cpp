@@ -205,6 +205,9 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
     c.fine_bin_width_us = cfg.value("fine_bin_width_us", 0.25);
     c.pdf_csv_path      = cfg.value("pdf_csv_path", std::string("./config/all_tail_response.csv"));
 
+	c.plot_fits = cfg.value("plot_fits", false);
+	c.pileup_min_pulses = cfg.value("pileup_min_pulses", 2);
+
 	// load runinfo JSON
     {
         std::ifstream i(c.runinfo_path);

@@ -35,6 +35,9 @@ typedef struct
 
     json runinfo_json;
     std::set<std::string> good_runs_set;
+
+    bool plot_fits;
+    int pileup_min_pulses;
 } Config;
 
 using EventList = std::list<event>;

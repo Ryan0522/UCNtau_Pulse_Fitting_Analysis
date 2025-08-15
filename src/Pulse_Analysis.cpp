@@ -6,8 +6,66 @@
 #include <iostream>
 #include <fstream>
 #include <set>
+#include <TCanvas.h>
+#include <TH1D.h>
+#include <TGraph.h>
+#include <TLegend.h>
+#include <TStyle.h>
 
 using namespace std;
+
+
+static void plot_fit_window(const std::string& out_png,
+                            const std::string& title,
+                            const std::vector<int>& hist,
+                            const std::vector<double>& x,
+                            const std::vector<double>& total,
+                            const std::vector<std::vector<double>>& comps)
+{
+    if (hist.empty() || x.size() != hist.size() || total.size() != hist.size())
+        return;
+	
+    gStyle->SetOptStat(0);
+    TCanvas* c = new TCanvas("c_fit", "Fit window", 900, 600);
+	
+    // Histogram (observed)
+    TH1D* h = new TH1D("h_obs", title.c_str(), (int)hist.size(), 0.0, x.back() + (x.size() > 1 ? (x[1]-x[0]) : 1.0));
+    for (size_t i = 0; i < hist.size(); ++i) h->SetBinContent((int)i+1, hist[i]);
+    h->GetXaxis()->SetTitle("Time offset in window (#mu s)");
+    h->GetYaxis()->SetTitle("Counts");
+    h->SetLineWidth(2);
+    h->Draw("HIST");
+
+    // Total model
+    std::vector<double> ytot = total;
+    TGraph* gtot = new TGraph((int)ytot.size());
+    for (int i = 0; i < (int)ytot.size(); ++i) {
+        double xc = h->GetBinLowEdge(i+1); // aligns with your left-edge scheme
+        gtot->SetPoint(i, xc, ytot[i]);
+    }
+    gtot->SetLineWidth(3);
+    gtot->Draw("L SAME");
+
+    // Components
+    TLegend* leg = new TLegend(0.62, 0.65, 0.88, 0.88);
+    leg->AddEntry(h, "Observed", "l");
+    leg->AddEntry(gtot, "Model total", "l");
+
+    for (size_t k = 0; k < comps.size(); ++k) {
+        TGraph* gk = new TGraph((int)comps[k].size());
+        for (int i = 0; i < (int)comps[k].size(); ++i) {
+            double xc = h->GetBinLowEdge(i+1);
+            gk->SetPoint(i, xc, comps[k][i]);
+        }
+        gk->SetLineStyle(2 + (int)k % 3);
+        gk->Draw("L SAME");
+        leg->AddEntry(gk, Form("Pulse %d", (int)k+1), "l");
+    }
+    leg->Draw();
+
+    c->SaveAs(out_png.c_str());
+    delete c;
+}
 
 // Set up and run the analysis, output to csv file
 void analysis_setup(const vector<EventList> run_data, json params, string output_folder, const Config& cfg) { // Event format: <time (us), PE #, event #, window width, # of events in window>
@@ -27,7 +85,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		return;
 	}
 
-	out << "Segment, Time (us), PE, Event\n";
+	out << "Segment, Time (us), PE, Event, Window Width\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
@@ -35,9 +93,41 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		Pulse_Fitting fitter(run_data[seg]);
 		fitter.setSegmentId(seg_ids[seg]);
 		fitter.setBinWidths(cfg.bin_width_us, cfg.fine_bin_width_us);
+		
+		fitter.enablePlotCapture(cfg.plot_fits, cfg.pileup_min_pulses);
+		
 		fitter.setWindow(start * 1e6, stop * 1e6);
 		fitter.setBackgroundWindow(bg_start * 1e6);
 		fitter.analyze();
+
+		// plotting (if enabled and available)
+		if (cfg.plot_fits) {
+			std::string base = ensureTrailingSlash(output_folder) + "graphs/";
+			// make sure the directory exists (cheap way; you might already mkdir -p elsewhere)
+			system((std::string("mkdir -p ") + base).c_str());
+
+			const auto& sh = fitter.getSingleHist();
+			
+			if (!sh.empty()) {
+				plot_fit_window(base + "first_single_seg" + segment_labels[seg] + ".png",
+								"First single-pulse fit (seg " + segment_labels[seg] + ")",
+								sh,
+								fitter.getSingleX(),
+								fitter.getSingleTotal(),
+								fitter.getSingleComps());
+			}
+
+			const auto& ph = fitter.getPileHist();
+			if (!ph.empty()) {
+				plot_fit_window(base + "first_pileup_seg" + segment_labels[seg] + ".png",
+								Form("First pileup fit (>= %d pulses) (seg %s)", cfg.pileup_min_pulses, segment_labels[seg].c_str()),
+								ph,
+								fitter.getPileX(),
+								fitter.getPileTotal(),
+								fitter.getPileComps());
+			}
+		}
+
 		auto signalPulses = fitter.getSignalPulses();
 		auto backgroundPulses = fitter.getBackgroundPulses();
 
@@ -46,6 +136,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 			out << segment_labels[seg] << ", "
 				<< get<0>(event)/1e6 << ", "
 				<< get<1>(event) << ", "
+				<< get<3>(event) << ", "
 				<< "1 \n";
 		}
 
@@ -54,6 +145,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 			out << segment_labels[seg] << ", "
 				<< get<0>(event)/1e6 << ", "
 				<< get<1>(event) << ", "
+				<< get<3>(event) << ", "
 				<< "0 \n";
 		}
 	}

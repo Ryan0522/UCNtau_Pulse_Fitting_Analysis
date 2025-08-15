@@ -5,8 +5,15 @@
 #include <TLegend.h>
 #include <TStyle.h>
 #include <TLatex.h>
+#include <TSystem.h>
+#include <TROOT.h>
+#include <TFile.h>
+#include <TDirectory.h>
+#include <TString.h>
 #include <iostream>
 #include <vector>
+#include <algorithm>
+#include <sys/stat.h>
 
 static TH1D* make_hist(const std::vector<double>& y, double dx, const char* name, const char* title) {
     int n = (int)y.size();
@@ -44,18 +51,19 @@ int main(int argc, char** argv) {
             continue;
         }
         TH1D* hf = make_hist(base->p_f, base->fineBinWidth, Form("hf%d",seg), Form("Segment %d (fine)",seg));
-        TH1D* hc = make_hist(base->p,   base->binWidth,     Form("hc%d",seg), Form("Segment %d (coarse)",seg));
+        // TH1D* hc = make_hist(base->p,   base->binWidth,     Form("hc%d",seg), Form("Segment %d (coarse)",seg));
         hf->SetLineColor(kBlue);  hf->SetLineWidth(2);
-        hc->SetLineColor(kRed+1); hc->SetLineWidth(2);
+        // hc->SetLineColor(kRed+1); hc->SetLineWidth(2);
 
-        double ymax = std::max(hf->GetMaximum(), hc->GetMaximum()) * 1.2;
+        // double ymax = std::max(hf->GetMaximum(), hc->GetMaximum()) * 1.2;
+        double ymax = hf->GetMaximum() * 1.2;
         hf->SetMaximum(ymax); hf->SetTitle(Form("Segment %d PDF (fine vs coarse)", seg));
         hf->Draw("HIST");
-        hc->Draw("HIST SAME");
+        // hc->Draw("HIST SAME");
 
         auto leg = new TLegend(0.60,0.70,0.88,0.88);
         leg->AddEntry(hf, "fine", "l");
-        leg->AddEntry(hc, "coarse", "l");
+        // leg->AddEntry(hc, "coarse", "l");
         leg->Draw();
         gPad->SetGrid();
     }

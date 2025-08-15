@@ -174,6 +174,56 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             continue;
         }
 
+        const bool need_single = capturePlots_ && !haveFirstSingle_ && (fittedPEs.size() == 1);
+        const bool need_pile = capturePlots_ && !haveFirstPileup_ && ((int)fittedPEs.size() >= pileupMinPulses_);
+        
+        if (need_single || need_pile) {
+            auto build_components = [&](const vector<double>& PEs,
+                                        const vector<double>& DTs,
+                                        const vector<vector<double>>& look) {
+                vector<vector<double>> comps;
+                comps.reserve(PEs.size());
+                vector<double> total(hist.size(), 0.0);
+                for (size_t m = 0; m < PEs.size(); ++m) {
+                    int dt_idx = (int)std::llround(DTs[m]);
+                    dt_idx = std::max(0, std::min(dt_idx, (int)look.size() - 1));
+                    vector<double> comp(hist.size(), 0.0);
+                    const auto& row = look[dt_idx];
+                    for (size_t j = 0; j < hist.size(); ++j) {
+                        double val = PEs[m] * row[j];
+                        comp[j] = val;
+                        total[j] += val;
+                    }
+                    comps.push_back(std::move(comp));
+                }
+                return std::make_pair(std::move(total), std::move(comps));
+            };
+
+            cout << "PE: " << endl;
+            for (const auto& val : fittedPEs) cout << val << ", ";
+            cout << "\n" << endl;
+            cout << "DT: " << endl;
+            for (const auto& val : fittedDTs) cout << val << ", ";
+            cout << "\n" << endl;
+
+            auto [totalExp, comps] = build_components(fittedPEs, fittedDTs, pdfLookup);
+
+            if (need_single) {
+                single_hist_ = hist;
+                single_x_ = xCenters;
+                single_total_ = totalExp;
+                single_components_ = comps;
+                haveFirstSingle_ = true;
+            }
+            if (need_pile) {
+                pile_hist_ = hist;
+                pile_x_ = xCenters;
+                pile_total_ = totalExp;
+                pile_components_ = comps;
+                haveFirstPileup_ = true;
+            }
+        }
+
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
             double pulse_time_us = startTime + fittedDTs[k] * (xCenters[1] - xCenters[0]);
             output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1); // store result

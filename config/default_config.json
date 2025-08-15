@@ -9,5 +9,8 @@
     
     "binWidth": 1,
     "fineBinWidth": 0.25,
-    "pdf_csv_path": "./config/all_tail_response.csv"
+    "pdf_csv_path": "./config/all_tail_response.csv",
+
+    "plot_fits": true,
+    "pileup_min_pulses": 2
 }

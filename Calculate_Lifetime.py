@@ -1,8 +1,10 @@
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import scipy.optimize as opt
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 RUNINFO_CSV = 'runinfo_2022_all.csv'
 ANALYSIS_DIR = './output/results/'
@@ -110,8 +112,11 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
         print(f"Missing {f}, skipping run {run}.")
         continue
     
-    df = pd.read_csv(f)
-    df.columns = df.columns.str.strip()
+    try:
+        df = pd.read_csv(f)
+        df.columns = df.columns.str.strip()
+    except Exception as e:
+        continue
     
     for seg in df['Segment'].unique():
         if str(seg) not in SEGMENTS:
@@ -133,6 +138,8 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
         results[key]['bg_flag'].extend(df.loc[mask, 'Event'].values)
         
         fillucn_sum[key] += per_seg_fill[str(seg)]
+
+print("Plotting PE Hist, max PE: ")
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), dpi=160) # PE spectra by hold time
 for hold_t in hold_times:
@@ -160,6 +167,8 @@ plt.close()
 
 thresholds = np.arange(5, 20)
 lifetime_by_seg = {} # seg -> (taus, dtau)
+
+print("Plotting Lifetime Estimate")
 
 plt.figure(figsize=(7, 5), dpi=160)
 for i, seg in enumerate(SEGMENTS):
