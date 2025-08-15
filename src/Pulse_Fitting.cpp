@@ -144,6 +144,8 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
     int N = static_cast<int>(data_us.size());
     int windowCount = 0;
     
+    cout << "Starting Time: " << data_us[i] / 1e6 << "\n" << endl;
+
     while (i < N) {
         vector<int> hist;
         vector<double> xCenters;
@@ -184,7 +186,10 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 
         windowCount++;
         i = j;
+        if (windowCount >= 10) break;
     }
+
+    cout << "Final Time: " << data_us[i] / 1e6 << "\n" << endl;
 }
 
 vector<double> Pulse_Fitting::analyticPDF(const vector<double>& x, int shift) {

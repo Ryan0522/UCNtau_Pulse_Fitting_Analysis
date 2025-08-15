@@ -5,5 +5,7 @@
     "good_runs": "./config/2022runlist.txt",
     "start_run": 26308,
     "end_run": 31888,
+    "binWidth": 1,
+    "fineBinWidth": 0.25,
     "save_to_txt": false
 }
