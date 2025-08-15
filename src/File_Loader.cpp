@@ -201,8 +201,8 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
     c.end_run = cfg.value("end_run", 0);
     c.save_to_txt = cfg.value("save_to_txt", false);
 
-	c.bin_width_us      = cfg.value("bin_width_us", 1.0);
-    c.fine_bin_width_us = cfg.value("fine_bin_width_us", 0.25);
+	c.bin_width_us      = cfg.value("binWidth", 1.0);
+    c.fine_bin_width_us = cfg.value("fineBinWidth", 0.25);
     c.pdf_csv_path      = cfg.value("pdf_csv_path", std::string("./config/all_tail_response.csv"));
 
 	c.plot_fits = cfg.value("plot_fits", false);

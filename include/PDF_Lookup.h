@@ -9,7 +9,7 @@ class PDF_Lookup {
     public:
         struct BasePDF {
             double binWidth = 1; // in microseconds (coarse)
-            double fineBinWidth = 0.25; // in microseconds (fine)
+            double fineBinWidth = 1; // in microseconds (fine)
             std::vector<double> p; // pdf for binWidth (0 us offset)
             std::vector<double> p_f; // pdf for fine bin (0 us offset)
         };

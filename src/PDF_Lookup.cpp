@@ -47,8 +47,8 @@ bool PDF_Lookup::load_csv(const std::string& path) {
     if (cols[0].size() < 100) return false;
 
     const vector<double>& t = cols[0];
-    double dt001 = (t.size() > 1) ? (t[1] - t[0]) : 0.25;
-    if (std::abs(dt001 - 0.25) > 1e-9) throw std::runtime_error("CSV time step not 0.25 us.");
+    double dt001 = (t.size() > 1) ? (t[1] - t[0]) : 1;
+    if (std::abs(dt001 - 1) > 1e-9) throw std::runtime_error("CSV time step not 1 us.");
 
     for (size_t c = 1; c < C; ++c) {
         int seg_id = parse_segment_name(headers[c]);
@@ -58,11 +58,13 @@ bool PDF_Lookup::load_csv(const std::string& path) {
         b.binWidth = coarseBinWidth_;
         b.fineBinWidth = fineBinWidth_;
 
-        downsample(p001, dt001, b.p_f, b.fineBinWidth);
-        normalize_series(b.p_f, b.fineBinWidth);
+        b.p_f = p001;
+        b.p = p001;
+        // downsample(p001, dt001, b.p_f, b.fineBinWidth);
+        // normalize_series(b.p_f, b.fineBinWidth);
 
-        downsample(b.p_f, b.fineBinWidth, b.p, b.binWidth);
-        normalize_series(b.p, b.binWidth);
+        // downsample(b.p_f, b.fineBinWidth, b.p, b.binWidth);
+        // normalize_series(b.p, b.binWidth);
 
         seg_[seg_id] = std::move(b);
     }

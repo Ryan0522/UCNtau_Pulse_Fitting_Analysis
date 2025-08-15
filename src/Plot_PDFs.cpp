@@ -50,6 +50,9 @@ int main(int argc, char** argv) {
             TLatex tl; tl.SetNDC(); tl.DrawLatex(0.2,0.5,Form("Segment %d not found", seg));
             continue;
         }
+
+        std::cout << "fineBinWidth: " << base->fineBinWidth << std::endl;
+        std::cout << "BinWidth: " << base->binWidth << std::endl;
         TH1D* hf = make_hist(base->p_f, base->fineBinWidth, Form("hf%d",seg), Form("Segment %d (fine)",seg));
         TH1D* hc = make_hist(base->p,   base->binWidth,     Form("hc%d",seg), Form("Segment %d (coarse)",seg));
         hf->SetLineColor(kBlue);  hf->SetLineWidth(2);
