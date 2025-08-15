@@ -9,7 +9,7 @@
 using namespace std;
 
 // Set up and run the analysis, output to csv file
-void analysis_setup(const vector<EventList> run_data, json params, string output_folder) { // Event format: <time (us), PE #, event #, window width, # of events in window>
+void analysis_setup(const vector<EventList> run_data, json params, string output_folder, const Config& cfg) { // Event format: <time (us), PE #, event #, window width, # of events in window>
 	
 	//define signal and background windows (us) from run parameters
 	double start = (double)params["fill_time"] + (double)params["hold_time"] + (double)params["clean_time"] + 40;
@@ -31,6 +31,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		// run pulse fitting on each segment independently
 		cout << "Segment: " << segment_labels[seg] << endl;
 		Pulse_Fitting fitter(run_data[seg]);
+		fitter.setBinWidths(cfg.bin_width_us, cfg.fine_bin_width_us);
 		fitter.setWindow(start * 1e6, stop * 1e6);
 		fitter.setBackgroundWindow(bg_start * 1e6);
 		fitter.analyze();
@@ -109,7 +110,7 @@ int main(int argc, char **argv) {
 					cerr << "No data found for run " << run << ". Skipping analysis." << endl;
 					continue;
 				}
-				analysis_setup(run_data, params[run], output_folder);
+				analysis_setup(run_data, params[run], output_folder, cfg);
 			}
 		} else {
 			cerr << "Run " << run << " not found or not a production run. Skipping." << endl;

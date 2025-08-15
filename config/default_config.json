@@ -5,7 +5,9 @@
     "good_runs": "./config/2022runlist.txt",
     "start_run": 26308,
     "end_run": 31888,
+    "save_to_txt": false,
+    
     "binWidth": 1,
     "fineBinWidth": 0.25,
-    "save_to_txt": false
+    "pdf_csv_path": "./config/all_tail_response.csv"
 }

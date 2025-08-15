@@ -8,6 +8,6 @@
 
 using json = nlohmann::json;
 
-void analysis_setup(const std::vector<EventList> run_data, json params, std::string output_folder);
+void analysis_setup(const std::vector<EventList> run_data, json params, std::string output_folder, const Config& cfg);
 
 #endif // PULSE_ANALYSIS_H

@@ -28,6 +28,10 @@ typedef struct
     int start_run;
     int end_run;
     bool save_to_txt;
+    
+    double bin_width_us; // default 1.0
+    double fine_bin_width_us; // default 0.25
+    std::string pdf_csv_path; // default "./config/all_tail_response.csv"
 
     json runinfo_json;
     std::set<std::string> good_runs_set;

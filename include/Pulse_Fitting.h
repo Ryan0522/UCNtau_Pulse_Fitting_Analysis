@@ -26,6 +26,7 @@ class Pulse_Fitting {
     public:
         // events: raw PE hits (list of 'event'); binWidth: coarse hist bin (us); minGap: break windows (us)
         Pulse_Fitting(const EventList& events, double binWidth = 1.0, double minGap = 10.0);
+        void setBinWidths(double coarse_us, double fine_us) {binWidth_ = coarse_us; fineBinWidth_ = fine_us; }
 
         void setWindow(double start_us, double stop_us); // signal window [start, stop) in us
         void setBackgroundWindow(double start_us); // background window [start, start+60s)
