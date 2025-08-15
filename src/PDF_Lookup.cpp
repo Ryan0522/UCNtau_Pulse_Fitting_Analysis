@@ -10,7 +10,7 @@
 using std::string;
 using std::vector;
 
-PDF_Lookup::PDF_Lookup(double coarse_bw, double fine_bw, std::string& csv_path)
+PDF_Lookup::PDF_Lookup(double coarse_bw, double fine_bw, const std::string& csv_path)
     : coarseBinWidth_(coarse_bw), fineBinWidth_(fine_bw), csv_path_(csv_path)
 {
     if (!csv_path.empty()) {

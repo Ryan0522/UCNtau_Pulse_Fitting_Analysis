@@ -1,4 +1,5 @@
 #include "Pulse_Fitting.h"
+#include "PDF_Global.h"
 #include <numeric>
 #include <algorithm>
 #include <nlopt.hpp>
@@ -45,6 +46,7 @@ void Pulse_Fitting::setBackgroundWindow(double start_us) {
 }
 
 void Pulse_Fitting::analyze() { // Assume 60s is the length for both the counting and the background windows
+    cout << "Segment: " << segmentId_ << endl;
     cout << "Event size: " << peTimes_.size() << endl; // total PE hits loaded
 
     vector<double> signalTimes = applyTimeWindow(peTimes_, startAfterUs_, stopAfterUs_);
@@ -144,8 +146,6 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
     int N = static_cast<int>(data_us.size());
     int windowCount = 0;
     
-    cout << "Starting Time: " << data_us[i] / 1e6 << "\n" << endl;
-
     while (i < N) {
         vector<int> hist;
         vector<double> xCenters;
@@ -180,82 +180,28 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
         }
 
-        if (pdfCache_.size() > 500) {
-            pdfCache_.clear();
-        }
-
         windowCount++;
         i = j;
-        if (windowCount >= 10) break;
     }
-
-    cout << "Final Time: " << data_us[i] / 1e6 << "\n" << endl;
 }
 
-vector<double> Pulse_Fitting::analyticPDF(const vector<double>& x, int shift) {
-    // tri-exponential impulse response over bin center x; normalized to 1
-    double r1 = pdfParams_.ratio1;
-    double r2 = pdfParams_.ratio2;
-    double r3 = pdfParams_.ratio3;
-    double s1 = pdfParams_.scale1;
-    double s2 = pdfParams_.scale2;
-    double s3 = pdfParams_.scale3;
-    double loc = pdfParams_.loc;
-
-    double R = r1 + r2 + r3;
-    double w1 = r1 / R;
-    double w2 = r2 / R;
-    double w3 = r3 / R;
-
-    vector<double> pdf(x.size(), 0.0);
-    for (size_t i = 0; i < x.size(); ++i) {
-        double t = x[i];
-        if (t < loc) continue;
-        double e1 = exp(-(t - loc) / s1) / s1;
-        double e2 = exp(-(t - loc) / s2) / s2;
-        double e3 = exp(-(t - loc) / s3) / s3;
-        pdf[i] = w1 * e1 + w2 * e2 + w3 * e3;
-    }
-
-    double sum = accumulate(pdf.begin(), pdf.end(), 0.0);
-    if (sum > 0) {
-        for (double& val : pdf) val /= sum;
-    }
-
-    if (shift > 0 && shift < (int)pdf.size()) {
-        vector<double> shifted(pdf.size(), 0.0);
-        for (size_t i = shift; i < pdf.size(); ++i) {
-            shifted[i] = pdf[i - shift];
-        }
-        return shifted;
-    }
-
-    return pdf;
-}
 
 vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xCenters) {
-    // build matrix: for each integer shift dx, a shifted PDF over bins
     if (xCenters.size() < 2) return {};
-    int length = static_cast<int>(xCenters.size());
+    const int length = static_cast<int>(xCenters.size());
+    const double binWidth = xCenters[1] - xCenters[0];
 
-    double binWidth = xCenters[1] - xCenters[0];
-    auto key = make_pair(length, round(binWidth * 1e6) / 1e6);
-
+    auto key = std::make_pair(length, std::round(binWidth * 1e6) / 1e6);
     auto it = pdfCache_.find(key);
-    if (it != pdfCache_.end()) {
-        return it->second;
-    }
+    if (it != pdfCache_.end()) return it->second;
 
-    vector<double> basePDF = analyticPDF(xCenters, 0);
-    vector<vector<double>> pdfLookup(length, vector<double>(length, 0.0));
+    vector<vector<double>> lookup(length, vector<double>(length, 0.0));
     for (int dx = 0; dx < length; ++dx) {
-        for (int i = dx; i < length; ++i) {
-            pdfLookup[dx][i] = basePDF[i - dx];
-        }
+        lookup[dx] = shifted_pdf(segmentId_, binWidth, dx, length);
     }
 
-    pdfCache_[key] = pdfLookup;
-    return pdfLookup;
+    pdfCache_[key] = lookup;
+    return lookup;
 }
 
 double Pulse_Fitting::poissonLogLikelihood(const vector<int>& observed, const vector<double>& expected) {

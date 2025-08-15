@@ -27,6 +27,7 @@ class Pulse_Fitting {
         // events: raw PE hits (list of 'event'); binWidth: coarse hist bin (us); minGap: break windows (us)
         Pulse_Fitting(const EventList& events, double binWidth = 1.0, double minGap = 10.0);
         void setBinWidths(double coarse_us, double fine_us) {binWidth_ = coarse_us; fineBinWidth_ = fine_us; }
+        void setSegmentId(int seg) { segmentId_ = seg; }
 
         void setWindow(double start_us, double stop_us); // signal window [start, stop) in us
         void setBackgroundWindow(double start_us); // background window [start, start+60s)
@@ -42,6 +43,7 @@ class Pulse_Fitting {
         double startAfterUs_; // signal start time (us)
         double stopAfterUs_; // signal stop time (us)
         double backgroundAfterUs_; // bg start (us), bg end = start + 60s
+        int segmentId_ = 12; // default
         std::vector<double> peTimes_; // all PE times (us)
 
         std::map<std::pair<int, double>, std::vector<std::vector<double>>> pdfCache_; // keyed by (nbins, binWidth)
@@ -66,8 +68,6 @@ class Pulse_Fitting {
         
         void fitRegion(const std::vector<double>& data_us,
                     std::vector<std::tuple<double, double, int, double, bool>>& output);
-
-        std::vector<double> analyticPDF(const std::vector<double>& x, int shift = 0); // tri-exp mixture over bins (normalized)
         
         std::vector<std::vector<double>> generatePDFLookup(const std::vector<double>& xCenters); // cached shifted PDFs
 

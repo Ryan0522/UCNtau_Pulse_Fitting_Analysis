@@ -1,6 +1,7 @@
 #include "Pulse_Analysis.h"
 #include "Pulse_Fitting.h"
 #include "File_Loader.h"
+#include "PDF_Global.h"
 #include <json.hpp>
 #include <iostream>
 #include <fstream>
@@ -17,6 +18,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	double bg_start = stop + 50;
 	
 	vector<string> segment_labels = {"12", "34", "56", "78"};
+	vector<int> seg_ids = {12, 34, 56, 78};
 	string output_file = output_folder + "results/PulseAnalysis_" + to_string(params["run_number"]) + ".csv";
 
 	ofstream out(output_file);
@@ -29,8 +31,9 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
-		cout << "Segment: " << segment_labels[seg] << endl;
+		// cout << "Segment: " << segment_labels[seg] << endl;
 		Pulse_Fitting fitter(run_data[seg]);
+		fitter.setSegmentId(seg_ids[seg]);
 		fitter.setBinWidths(cfg.bin_width_us, cfg.fine_bin_width_us);
 		fitter.setWindow(start * 1e6, stop * 1e6);
 		fitter.setBackgroundWindow(bg_start * 1e6);
@@ -76,6 +79,8 @@ int main(int argc, char **argv) {
 		cerr << "Error starting program: " << e.what() << endl;
 		return 1;
 	}
+
+	init_global_pdf(cfg);
 
 	std::string data_folder   = ensureTrailingSlash(cfg.data_folder);
     std::string output_folder = ensureTrailingSlash(cfg.output_folder);

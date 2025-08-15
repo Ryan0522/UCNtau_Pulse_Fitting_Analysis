@@ -14,7 +14,7 @@ class PDF_Lookup {
             std::vector<double> p_f; // pdf for fine bin (0 us offset)
         };
 
-        PDF_Lookup(double coarse_bw, double fine_bw, std::string& csv_path);
+        PDF_Lookup(double coarse_bw, double fine_bw, const std::string& csv_path);
 
         bool load_csv(const std::string& path);
         bool has_segment(int seg_id) const { return seg_.count(seg_id) > 0; }
