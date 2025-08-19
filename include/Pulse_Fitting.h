@@ -25,7 +25,7 @@ double getLogLambda(double lam);
 class Pulse_Fitting {
     public:
         // events: raw PE hits (list of 'event'); binWidth: coarse hist bin (us); minGap: break windows (us)
-        Pulse_Fitting(const EventList& events, double binWidth = 1.0, double minGap = 50.0);
+        Pulse_Fitting(const EventList& events, double binWidth = 0.25, double minGap = 40.0);
         void setBinWidths(double coarse_us, double fine_us) {binWidth_ = coarse_us; fineBinWidth_ = fine_us; }
         void setSegmentId(int seg) { segmentId_ = seg; }
 
