@@ -203,10 +203,16 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 
 	c.bin_width_us      = cfg.value("binWidth", 1.0);
     c.fine_bin_width_us = cfg.value("fineBinWidth", 0.25);
+	c.min_gap = cfg.value("minGap", 10);
     c.pdf_csv_path      = cfg.value("pdf_csv_path", std::string("./config/all_tail_response.csv"));
 
 	c.plot_fits = cfg.value("plot_fits", false);
 	c.pileup_min_pulses = cfg.value("pileup_min_pulses", 2);
+
+	c.shift_us = cfg.value("shift_us", 5.0);
+	c.seed_pe_default = cfg.value("seed_pe_default", 20.0);
+	c.gradient_threshold = cfg.value("gradient_threshold", 2.0);
+	c.guard_bin = cfg.value("guard_bin", 1);
 
 	// load runinfo JSON
     {

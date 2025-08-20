@@ -9,7 +9,13 @@
     
     "binWidth": 0.25,
     "fineBinWidth": 0.25,
+    "binGap": 40,
     "pdf_csv_path": "./config/all_tail_response.csv",
+
+    "shift_us": 5.0,
+    "seed_pe_default": 20.0,
+    "gradient_threshold": 2.0,
+    "guard_bin": 1,
 
     "plot_fits": true,
     "pileup_min_pulses": 2

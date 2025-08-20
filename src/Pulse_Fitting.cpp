@@ -156,8 +156,7 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
     }
 
     // --- NEW: prepend 5 us worth of empty bins so fitter origin is at -5 us (due to PDF generate algorithm in Pulse_Tail.cpp) ---
-    const double prepad_us = 5.0;
-    int pre_bins = static_cast<int>(std::llround(prepad_us / binWidth));
+    int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth));
     if (pre_bins > 0) {
         hist.insert(hist.begin(), pre_bins, 0);
 
@@ -263,9 +262,13 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 
         // --- NEW: convert DT to absolute time with +5us correction ---
         const double binWidth = binWidth_;
-        const int pre_bins = static_cast<int>(std::llround(5.0 / binWidth));
+        const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth));
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
-            double pulse_time_us = startTime + fittedDTs[k] * binWidth + 5.0; // +5us correction
+            long long dt_bins = std::llround(fittedDts[k]);
+            if (dt_bins < 0) dt_bins = 0;
+            if (dt_bins > (long long)xCenters.size() - 1) dt_bins = (long long)xCenters.size() - 1;
+
+            double pulse_time_us = startTime + dt_bins * binWidth + shiftUs_; // +5us correction
             output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
         }
@@ -315,12 +318,19 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
 {
     // params = [PE_0..PE_{n-1}, dt_0..dt_{n-1}] ; expected = sum_i PE_i * shiftedPDF(dt_i)
     vector<double> expected(observed.size(), 0.0);
+    const int nrows = (int)pdfLookup.size();
+
     for (int i = 0; i < nPulses; ++i) {
-        double PE = params[i];
-        int dt = (int)std::llround(params[nPulses + i]);
-        for (size_t j = 0; j < observed.size(); ++j) {
-            expected[j] += PE * pdfLookup[dt][j];
-        }
+        const double PE = params[i]
+
+        long long dt_ll = std::llround(params[nPulses + i]); // snap to bin
+        if (dt_ll < 0) dt_ll = 0;
+        if (dt_ll > (long long)nrows - 1) dt_ll = (long long)nrows - 1;
+        const int dt = (int)dt_ll
+
+        const auto& row = pdfLookup[dt];
+        for (size_t j = 0; j < observed.size(); ++j)
+            expected[j] += PE * row[j];
     }
     return -poissonLogLikelihood(observed, expected);
 }
@@ -360,18 +370,18 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     // Compute pre_bins from current bin width (5 us target) (August 20, 2025)
     const double binWidth = binWidth_;
-    const int pre_bins = static_cast<int>(std::llround(5.0 / binWidth));
+    const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth));
 
     // Use separate gradient peak detection function
-    vector<int> peaks = findGradientPeaks(hist, 2.0);
+    vector<int> peaks = findGradientPeaks(hist, gradThr_);
 
     // --- Changed: default seed at PE=20, DT=5us (== pre_bins) ---
-    vector<double> peGuess = {20.0};
-    vector<double> dtGuess = {0.0};
+    vector<double> peGuess = { seedPE_ };
+    vector<double> dtGuess = { 0.0 };
     // --- end Changed (August 20, 2025) ---
 
     for (int p : peaks) {
-        if (p < pre_bins + 1) continue;
+        if (p < pre_bins + guardBin_) continue;
         int idx = p - pre_bins;
         if (idx < 0 || idx > (int)hist.size()) continue;
 

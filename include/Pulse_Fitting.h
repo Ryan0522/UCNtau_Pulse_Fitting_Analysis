@@ -25,9 +25,22 @@ double getLogLambda(double lam);
 class Pulse_Fitting {
     public:
         // events: raw PE hits (list of 'event'); binWidth: coarse hist bin (us); minGap: break windows (us)
-        Pulse_Fitting(const EventList& events, double binWidth = 0.25, double minGap = 40.0);
+        Pulse_Fitting(const EventList& events, double minGap);
         void setBinWidths(double coarse_us, double fine_us) {binWidth_ = coarse_us; fineBinWidth_ = fine_us; }
         void setSegmentId(int seg) { segmentId_ = seg; }
+
+        void setConfigKnobs(double shift_us,
+                            double seed_pe_default,
+                            double gradient_threshold,
+                            int guard_bin)
+        {
+            shiftUs_   = shift_us;
+            seedPE_    = seed_pe_default;
+            gradThr_   = gradient_threshold;
+            guardBin_  = std::max(0, guard_bin);
+        }
+
+        double shift_us() const { return shiftUs_; }
 
         // NEW (2025/8/15): plotting capture controls
         void enablePlotCapture(bool enable, int pileupMinPulses) {
@@ -60,6 +73,12 @@ class Pulse_Fitting {
         double backgroundAfterUs_; // bg start (us), bg end = start + 60s
         int segmentId_ = 12; // default
         std::vector<double> peTimes_; // all PE times (us)
+
+        // --- NEW configurable knobs (defaults if config omits them)
+        double shiftUs_ = 5.0;
+        double seedPE_ = 20.0;
+        double gradThr_ = 2.0;
+        int guardBin_ = 1;
 
         std::map<std::pair<int, double>, std::vector<std::vector<double>>> pdfCache_; // keyed by (nbins, binWidth)
 

@@ -31,6 +31,7 @@ typedef struct
     
     double bin_width_us; // default 1.0
     double fine_bin_width_us; // default 0.25
+    int min_gap; // default 10 
     std::string pdf_csv_path; // default "./config/all_tail_response.csv"
 
     json runinfo_json;
@@ -38,6 +39,12 @@ typedef struct
 
     bool plot_fits;
     int pileup_min_pulses;
+
+    // --- NEW knobs to change in config.json
+    double shift_us; // default 5.0 (time zero offset to add at output due to PDF generation)
+    double seed_pe_default; // default 20.0 (default PE for the first pulse in each valid window)
+    double gradient_threshold; // default 2.0 (findGradientPeaks threshold factor)
+    int guard_bin; // default 1 (exclude extra peaks near the first pulse)
 } Config;
 
 using EventList = std::list<event>;
