@@ -24,20 +24,24 @@ double getLogLambda(double lam);
 
 class Pulse_Fitting {
     public:
-        // events: raw PE hits (list of 'event'); binWidth: coarse hist bin (us); minGap: break windows (us)
-        Pulse_Fitting(const EventList& events, double minGap);
-        void setBinWidths(double coarse_us, double fine_us) {binWidth_ = coarse_us; fineBinWidth_ = fine_us; }
+        Pulse_Fitting(const EventList& events);
+        void setBinWidths(double coarse_us, double fine_us) {
+            binWidth_ = coarse_us > 0 ? coarse_us : binWidth_; 
+            fineBinWidth_ = fine_us > 0 ? fine_us : fineBinWidth_; 
+        }
+        void setMinGapUs(double mg_us) { if (mg_us >= 0) minGap_ = mg_us; }
         void setSegmentId(int seg) { segmentId_ = seg; }
+        void setConfigKnobs(double shift_us, double seed_pe_default, double gradient_threshold, int guard_bin) {
+            shiftUs_ = shift_us; seedPE_ = seed_pe_default; gradThr_ = gradient_threshold; guardBin_ = std::max(0, guard_bin);
+        }
 
-        void setConfigKnobs(double shift_us,
-                            double seed_pe_default,
-                            double gradient_threshold,
-                            int guard_bin)
-        {
-            shiftUs_   = shift_us;
-            seedPE_    = seed_pe_default;
-            gradThr_   = gradient_threshold;
-            guardBin_  = std::max(0, guard_bin);
+        template <class Cfg>
+        void initFromConfig(const Cfg& c) {
+            setBinWidths(c.bin_width_us, c.fine_bin_width_us);
+            setMinGapUs(c.min_gap_us);
+            setConfigKnobs(c.shift_us, c.seed_pe_default, c.gradient_threshold, c.guard_bin);
+            pileupMinPulses_ = c.pileup_min_pulses;
+            capturePlots_ = c.plot_fits;
         }
 
         double shift_us() const { return shiftUs_; }
@@ -65,12 +69,13 @@ class Pulse_Fitting {
         const std::vector<std::tuple<double, double, int, double, bool>>& getBackgroundPulses() const { return backgroundPulses_; }
 
     private:
-        double binWidth_; // primary histogram bin (us)
+        double binWidth_ = 1.0; // primary histogram bin (us)
         double fineBinWidth_ = 0.25; // fallback giner bining (us)
-        double minGap_; // max inter-hit gap before closing a window (us)
-        double startAfterUs_; // signal start time (us)
-        double stopAfterUs_; // signal stop time (us)
-        double backgroundAfterUs_; // bg start (us), bg end = start + 60s
+
+        double minGap_ = 0.0; // max inter-hit gap before closing a window (us)
+        double startAfterUs_ = 0; // signal start time (us)
+        double stopAfterUs_ = 1e12; // signal stop time (us)
+        double backgroundAfterUs_ = 0; // bg start (us), bg end = start + 60s
         int segmentId_ = 12; // default
         std::vector<double> peTimes_; // all PE times (us)
 

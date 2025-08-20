@@ -31,7 +31,7 @@ typedef struct
     
     double bin_width_us; // default 1.0
     double fine_bin_width_us; // default 0.25
-    int min_gap; // default 10 
+    int min_gap_us; // default 10 
     std::string pdf_csv_path; // default "./config/all_tail_response.csv"
 
     json runinfo_json;

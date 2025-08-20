@@ -189,7 +189,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 		throw std::runtime_error(
             "Expected 7 args in full mode.\n"
             "Usage (config): prog [config.json]\n"
-            "Usage (full):   prog ./data/ ./out/ ./runinfo.json ./good_runs.txt <start> <end> <true|false>");
+            "Usage (full):   prog ./data/ ./out/ ./runinfo.json ./good_runs.txt");
     }
 
 	// populate Config object with defaults + overrides
@@ -203,7 +203,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 
 	c.bin_width_us      = cfg.value("binWidth", 1.0);
     c.fine_bin_width_us = cfg.value("fineBinWidth", 0.25);
-	c.min_gap = cfg.value("minGap", 10);
+	c.min_gap_us = cfg.value("minGap", 10);
     c.pdf_csv_path      = cfg.value("pdf_csv_path", std::string("./config/all_tail_response.csv"));
 
 	c.plot_fits = cfg.value("plot_fits", false);
