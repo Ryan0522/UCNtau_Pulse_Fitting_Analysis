@@ -31,6 +31,6 @@ Plot_PDFs: src/File_Loader.cpp src/PDF_Lookup.cpp src/Plot_PDFs.cpp \
 	$(CXX) $(CXXFLAGS) src/File_Loader.cpp src/PDF_Lookup.cpp src/Plot_PDFs.cpp -o $@ $(LDFLAGS)
 
 clean:
-	rm -f Pulse_Analysis Runtime_Analysis_ Pulse_Tail
+	rm -f Pulse_Analysis Runtime_Analysis_ Pulse_Tail ./Plot_PDFs
 
 .PHONY: clean

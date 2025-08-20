@@ -108,11 +108,11 @@ class Pulse_Fitting {
                                 const std::vector<std::vector<double>>& pdfLookup,
                                 int nPulses); // seed candidates
 
-        std::vector<int> findGradientPeaks(const std::vector<int>& hist, double threshold, int ignoreIdx); // NLOpt fit over PE, DT per pulse
+        std::vector<int> findGradientPeaks(const std::vector<int>& hist, double threshold);
                                 
         bool fitPulses(const std::vector<int>& hist, const std::vector<double>& xCenters,
                     const std::vector<std::vector<double>>& pdfLookup,
-                    std::vector<double>& fittedPEs, std::vector<double>& fittedDTs);
+                    std::vector<double>& fittedPEs, std::vector<double>& fittedDTs); // NLOpt fit over PE, DT per pulse
 };
 
 #endif // PULSE_FITTING_H

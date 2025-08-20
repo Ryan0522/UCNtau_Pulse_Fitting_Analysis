@@ -5,12 +5,32 @@
 #include <nlopt.hpp>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 
 using namespace std;
 
-std::vector<double> makeLogFactorialTable(int max_k) {
+static void dump_params_bounds(const vector<double>& params,
+                                const vector<double>& lb,
+                                const vector<double>& ub,
+                                int nPulses,
+                            const char* tag) 
+{
+    cerr << "\n=== NLopt debug dump: " << tag << " ===\n";
+    cerr << "nPulses=" << nPulses
+              << "  nParams=" << params.size() << " (PE[" << nPulses
+              << "], DT[" << nPulses << "])\n";
+    for (size_t i = 0; i < params.size(); ++i) {
+        string kind = (i < (size_t)nPulses) ? "PE" : "DT";
+        cerr << "  [" << std::setw(2) << i << "] " << kind
+                  << " : " << params[i]
+                  << "  bounds: [" << lb[i] << ", " << ub[i] << "]\n";
+    }
+    cerr << "=== end dump ===\n\n";
+}
+
+vector<double> makeLogFactorialTable(int max_k) {
     // precompute log(k!) for small k (speed Poisson logL at low counts)
-    std::vector<double> table(max_k);
+    vector<double> table(max_k);
     for (int k = 0; k < max_k; ++k) {
         table[k] = std::lgamma(k + 1.0);
     }
@@ -135,6 +155,19 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
         }
     }
 
+    // --- NEW: prepend 5 us worth of empty bins so fitter origin is at -5 us (due to PDF generate algorithm in Pulse_Tail.cpp) ---
+    const double prepad_us = 5.0;
+    int pre_bins = static_cast<int>(std::llround(prepad_us / binWidth));
+    if (pre_bins > 0) {
+        hist.insert(hist.begin(), pre_bins, 0);
+
+        // rebuild xCenters to stay aligned (0, 1*binWidth, ...)
+        vector<double>newX(hist.size());
+        for (size_t b = 0; b < newX.size(); ++b) newX[b] = b * binWidth;
+        xCenters.swap(newX);
+    }
+    // --- end NEW (August 20, 2025) ---
+
     return true;
 }
 
@@ -200,40 +233,18 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
                 return std::make_pair(std::move(total), std::move(comps));
             };
 
-            auto [totalExp, comps] = build_components(fittedPEs, fittedDTs, pdfLookup);
-            
-            cout << "PE: " << endl;
-            for (const auto& val : fittedPEs) cout << val << ", ";
-            cout << "\n" << endl;
-            cout << "DT: " << endl;
-            for (const auto& val : fittedDTs) cout << val << ", ";
-            cout << "\n" << endl;
-
-            cout << "=== CAPTURE DEBUG (" << (need_single ? "single" : "pileup") << ") ===" << endl;
-
-            // hist
-            cout << "hist: ";
-            for (auto v : hist) cout << v << " ";
-            cout << endl;
-
-            // xCenters
-            cout << "xCenters: ";
-            for (auto v : xCenters) cout << v << " ";
-            cout << endl;
-
-            // total expectation
-            cout << "total: ";
-            for (auto v : totalExp) cout << v << " ";
-            cout << endl;
-
-            // components
-            for (size_t k = 0; k < comps.size(); ++k) {
-                cout << "comp[" << k << "]: ";
-                for (auto v : comps[k]) cout << v << " ";
-                cout << endl;
+            for (size_t k = 0; k < fittedDTs.size(); ++k) {
+                double dt = fittedDTs[k];
+                double nearest = std::round(dt);
+                if (std::fabs(dt - nearest) > 1e-6) {
+                    std::cout << "Pulse " << k << ": DT=" << dt << " (non-integer, nearest=" << nearest << ")\n";
+                } else {
+                    std::cout << "Pulse " << k << ": DT=" << dt << " (integer-like)\n";
+                }
             }
-            cout << "=============================" << endl;
 
+            auto [totalExp, comps] = build_components(fittedPEs, fittedDTs, pdfLookup);
+    
             if (need_single) {
                 single_hist_ = hist;
                 single_x_ = xCenters;
@@ -250,11 +261,15 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             }
         }
 
+        // --- NEW: convert DT to absolute time with +5us correction ---
+        const double binWidth = binWidth_;
+        const int pre_bins = static_cast<int>(std::llround(5.0 / binWidth));
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
-            double pulse_time_us = startTime + fittedDTs[k] * (xCenters[1] - xCenters[0]);
+            double pulse_time_us = startTime + fittedDTs[k] * binWidth + 5.0; // +5us correction
             output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
         }
+        // --- end NEW (August 20, 2025) ---
 
         windowCount++;
         i = j;
@@ -302,7 +317,7 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
     vector<double> expected(observed.size(), 0.0);
     for (int i = 0; i < nPulses; ++i) {
         double PE = params[i];
-        int dt = static_cast<int>(params[nPulses + i]);
+        int dt = (int)std::llround(params[nPulses + i]);
         for (size_t j = 0; j < observed.size(); ++j) {
             expected[j] += PE * pdfLookup[dt][j];
         }
@@ -310,15 +325,15 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
     return -poissonLogLikelihood(observed, expected);
 }
 
-vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thresholdFactor, int ignoreIdx) {
+vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thresholdFactor) {
     // simple gradient-based seed find; thresholdFactor in units of grad "std"
-    if ((int)hist.size() <= ignoreIdx + 2) {
+    if ((int)hist.size() <= 2) {
         return {};
     }
 
-    vector<double> grad(hist.size() - ignoreIdx);
-    for (size_t i = ignoreIdx; i + 1 < hist.size(); ++i) {
-        grad[i - ignoreIdx] = static_cast<double>(hist[i + 1] - hist[i - 1]) / 2.0;
+    vector<double> grad(hist.size());
+    for (size_t i = 0; i + 1 < hist.size(); ++i) {
+        grad[i] = static_cast<double>(hist[i + 1] - hist[i - 1]) / 2.0;
     }
 
     double sumSq = 0.0;
@@ -342,18 +357,26 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     // seed candidates from gradient; then NLOpt (bounded) to fit PE, dt
     const int minPE = 5;
     const int window = 5;
-    const int ignoreIdx = 3;
+
+    // Compute pre_bins from current bin width (5 us target) (August 20, 2025)
+    const double binWidth = binWidth_;
+    const int pre_bins = static_cast<int>(std::llround(5.0 / binWidth));
 
     // Use separate gradient peak detection function
-    vector<int> peaks = findGradientPeaks(hist, 2.0, ignoreIdx);
+    vector<int> peaks = findGradientPeaks(hist, 2.0);
 
+    // --- Changed: default seed at PE=20, DT=5us (== pre_bins) ---
     vector<double> peGuess = {20.0};
     vector<double> dtGuess = {0.0};
+    // --- end Changed (August 20, 2025) ---
+
     for (int p : peaks) {
-        int idx = p + ignoreIdx;
-        int start = idx;
+        if (p < pre_bins + 1) continue;
+        int idx = p - pre_bins;
+        if (idx < 0 || idx > (int)hist.size()) continue;
+
         int end = min(idx + window, static_cast<int>(hist.size()));
-        int sum = accumulate(hist.begin() + start, hist.begin() + end, 0);
+        int sum = accumulate(hist.begin() + idx, hist.begin() + end, 0);
 
         if (sum >= minPE) {
             peGuess.push_back(sum);
@@ -379,14 +402,17 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     params.insert(params.end(), newDT.begin(), newDT.end());
 
     vector<double> lb, ub;
+    // PE bounds
     for (int i = 0; i < nPulses; ++i) {
         lb.push_back(1.0);
         ub.push_back(300.0);
     }
+    // DT bounds --- Changed: lower bound locked at pre_bins (== 5us) ---
     for (int i = 0; i < nPulses; ++i) {
         lb.push_back(0.0);
         ub.push_back(static_cast<double>(xCenters.size() - 1));
     }
+    // --- end Changed (August 20, 2025) ---
 
     nlopt::opt opt(nlopt::LN_BOBYQA, params.size()); // derivative-free local
     opt.set_lower_bounds(lb);
@@ -407,7 +433,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     try {
         nlopt::result result = opt.optimize(params, minf);
     } catch (exception& e) {
-        cerr << "NLopt failed: " << e.what() << endl;
+        dump_params_bounds(params, lb, ub, nPulses, "on-error");
+        throw std::runtime_error("Fatal NLopt failure, exiting.");
         return false;
     }
 
@@ -460,7 +487,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             fittedPEs.assign(refinedParams.begin(), refinedParams.begin() + refinedN);
             fittedDTs.assign(refinedParams.begin() + refinedN, refinedParams.end());
         } catch (exception& e) {
-            cerr << "Refined NLopt failed: " << e.what() << endl;
+            dump_params_bounds(refinedParams, lb, ub, refinedN, "on-error refined");
+            throw std::runtime_error("Fatal NLopt failure, exiting.");
             return false;
         }
     } else {

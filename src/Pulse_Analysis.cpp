@@ -26,50 +26,60 @@ static void plot_fit_window(const std::string& out_png,
         return;
 	
     gStyle->SetOptStat(0);
-    TCanvas* c = new TCanvas("c_fit", "Fit window", 900, 600);
+	std::string cname = "c_fit_" + out_png;
+    TCanvas* c = new TCanvas(cname.c_str(), "Fit window", 1000, 600);
+	c->SetMargin(0.12, 0.05, 0.12, 0.08);
+	c->SetGrid(1, 1);
 	
 	// Histogram (observed) with variable bin edges from x (left edges)
 	const int nb = (int)hist.size();
 	const double dx = (x.size() > 1 ? (x[1] - x[0]) : 1.0);
 
-	// Build edges: [x[0], x[1], ..., x[nb-1], x[nb-1]+dx]
-	std::vector<double> edges(nb + 1);
-	for (int i = 0; i < nb; ++i) edges[i] = x[i];
-	edges[nb] = x.back() + dx;
-
     // Histogram (observed)
-    TH1D* h = new TH1D("h_obs", title.c_str(), (int)hist.size(), 0.0, x.back() + (x.size() > 1 ? (x[1]-x[0]) : 1.0));
-    for (size_t i = 0; i < hist.size(); ++i) h->SetBinContent((int)i+1, hist[i]);
+	std::string hname = "h_obs_" + out_png;
+    TH1D* h = new TH1D(hname.c_str(), title.c_str(), nb, 0.0, x.back() + dx);
+    h->SetDirectory(nullptr); // don't register to gDirectory (August 20, 2025)
+	for (int i = 0; i < nb; ++i) h->SetBinContent((int)i+1, hist[i]);
     h->GetXaxis()->SetTitle("Time offset in window (#mu s)");
     h->GetYaxis()->SetTitle("Counts");
+	h->SetLineColor(kBlack);
     h->SetLineWidth(2);
     h->Draw("HIST");
 
     // Total model
     TGraph* gtot = new TGraph(nb);
 	for (int i = 0; i < nb; ++i) gtot->SetPoint(i, x[i], total[i]);
+	gtot->SetLineColor(kBlue+1);
 	gtot->SetLineWidth(3);
 	gtot->Draw("L SAME");
 
     // Components
     TLegend* leg = new TLegend(0.62, 0.65, 0.88, 0.88);
+	leg->SetBorderSize(0);
+	leg->SetFillStyle(0);
     leg->AddEntry(h, "Observed", "l");
     leg->AddEntry(gtot, "Model total", "l");
 
+    int colors[6] = {kRed+1, kGreen+2, kMagenta+1, kOrange+1, kCyan+2, kViolet};
     for (size_t k = 0; k < comps.size(); ++k) {
         TGraph* gk = new TGraph((int)comps[k].size());
         for (int i = 0; i < (int)comps[k].size(); ++i) {
-            double xc = h->GetBinLowEdge(i+1);
-            gk->SetPoint(i, xc, comps[k][i]);
+            gk->SetPoint(i, x[i], comps[k][i]);
         }
-        gk->SetLineStyle(2 + (int)k % 3);
-        gk->Draw("L SAME");
+		gk->SetLineStyle(2);
+        gk->SetLineWidth(2);
+        gk->SetLineColor(colors[k % 6]);
+		gk->Draw("L SAME");
         leg->AddEntry(gk, Form("Pulse %d", (int)k+1), "l");
     }
     leg->Draw();
 
     c->SaveAs(out_png.c_str());
-    delete c;
+
+    delete h;
+	delete gtot;
+	delete leg;
+	delete c;
 }
 
 // Set up and run the analysis, output to csv file

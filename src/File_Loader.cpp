@@ -175,7 +175,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 		f >> cfg;
 	}
 
-	if (argc >= 8) {
+	if (argc == 7) {
 		// override config via CLI args (full mode)
         cfg["data_folder"]   = std::string(argv[1]);
         cfg["output_folder"] = std::string(argv[2]);
@@ -183,7 +183,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
         cfg["good_runs"]     = std::string(argv[4]);
         cfg["start_run"]     = std::stoi(argv[5]);
         cfg["end_run"]       = std::stoi(argv[6]);
-        cfg["save_to_txt"]   = (string(argv[7]) == "true");
+		// Note: save_to_txt is *not* settable from CLI anymore
     } else if (argc != 1 && argc != 2) {
         // throw hint on bad arg count
 		throw std::runtime_error(
