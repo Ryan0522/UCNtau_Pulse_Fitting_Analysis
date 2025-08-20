@@ -28,6 +28,15 @@ static void plot_fit_window(const std::string& out_png,
     gStyle->SetOptStat(0);
     TCanvas* c = new TCanvas("c_fit", "Fit window", 900, 600);
 	
+	// Histogram (observed) with variable bin edges from x (left edges)
+	const int nb = (int)hist.size();
+	const double dx = (x.size() > 1 ? (x[1] - x[0]) : 1.0);
+
+	// Build edges: [x[0], x[1], ..., x[nb-1], x[nb-1]+dx]
+	std::vector<double> edges(nb + 1);
+	for (int i = 0; i < nb; ++i) edges[i] = x[i];
+	edges[nb] = x.back() + dx;
+
     // Histogram (observed)
     TH1D* h = new TH1D("h_obs", title.c_str(), (int)hist.size(), 0.0, x.back() + (x.size() > 1 ? (x[1]-x[0]) : 1.0));
     for (size_t i = 0; i < hist.size(); ++i) h->SetBinContent((int)i+1, hist[i]);
@@ -37,14 +46,10 @@ static void plot_fit_window(const std::string& out_png,
     h->Draw("HIST");
 
     // Total model
-    std::vector<double> ytot = total;
-    TGraph* gtot = new TGraph((int)ytot.size());
-    for (int i = 0; i < (int)ytot.size(); ++i) {
-        double xc = h->GetBinLowEdge(i+1); // aligns with your left-edge scheme
-        gtot->SetPoint(i, xc, ytot[i]);
-    }
-    gtot->SetLineWidth(3);
-    gtot->Draw("L SAME");
+    TGraph* gtot = new TGraph(nb);
+	for (int i = 0; i < nb; ++i) gtot->SetPoint(i, x[i], total[i]);
+	gtot->SetLineWidth(3);
+	gtot->Draw("L SAME");
 
     // Components
     TLegend* leg = new TLegend(0.62, 0.65, 0.88, 0.88);

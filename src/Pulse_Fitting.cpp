@@ -178,6 +178,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         const bool need_pile = capturePlots_ && !haveFirstPileup_ && ((int)fittedPEs.size() >= pileupMinPulses_);
         
         if (need_single || need_pile) {
+
             auto build_components = [&](const vector<double>& PEs,
                                         const vector<double>& DTs,
                                         const vector<vector<double>>& look) {
@@ -199,6 +200,8 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
                 return std::make_pair(std::move(total), std::move(comps));
             };
 
+            auto [totalExp, comps] = build_components(fittedPEs, fittedDTs, pdfLookup);
+            
             cout << "PE: " << endl;
             for (const auto& val : fittedPEs) cout << val << ", ";
             cout << "\n" << endl;
@@ -206,7 +209,30 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             for (const auto& val : fittedDTs) cout << val << ", ";
             cout << "\n" << endl;
 
-            auto [totalExp, comps] = build_components(fittedPEs, fittedDTs, pdfLookup);
+            cout << "=== CAPTURE DEBUG (" << (need_single ? "single" : "pileup") << ") ===" << endl;
+
+            // hist
+            cout << "hist: ";
+            for (auto v : hist) cout << v << " ";
+            cout << endl;
+
+            // xCenters
+            cout << "xCenters: ";
+            for (auto v : xCenters) cout << v << " ";
+            cout << endl;
+
+            // total expectation
+            cout << "total: ";
+            for (auto v : totalExp) cout << v << " ";
+            cout << endl;
+
+            // components
+            for (size_t k = 0; k < comps.size(); ++k) {
+                cout << "comp[" << k << "]: ";
+                for (auto v : comps[k]) cout << v << " ";
+                cout << endl;
+            }
+            cout << "=============================" << endl;
 
             if (need_single) {
                 single_hist_ = hist;
