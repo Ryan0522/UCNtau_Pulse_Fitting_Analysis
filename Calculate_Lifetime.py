@@ -109,16 +109,20 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
 
     f = os.path.join(ANALYSIS_DIR, f'PulseAnalysis_{run}.csv')
     if not os.path.exists(f):
-        print(f"Missing {f}, skipping run {run}.")
+        # print(f"Missing {f}, skipping run {run}.")
         continue
     
     try:
         df = pd.read_csv(f)
         df.columns = df.columns.str.strip()
+        
+        df['Segment'] = pd.to_numeric(df['Segment'], errors='coerce').astype('Int64')
+        df['PE'] = pd.to_numeric(df['PE'], errors='coerce')
+        df['Event'] = pd.to_numeric(df['Event'], errors='coerce')
     except Exception as e:
         continue
     
-    for seg in df['Segment'].unique():
+    for seg in df['Segment'].dropna().unique():
         if str(seg) not in SEGMENTS:
             print(f"Unknown segment {seg} in run {run}, skipping.")
             continue
@@ -128,16 +132,16 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
             results[key] = {'times': [], 'PE': [], 'bg_flag': []}
             fillucn_sum[key] = 0.0
         
-        mask = (df['Segment'].tolist() == seg)
+        mask = (df['Segment'] == seg)
         # if run == '26594' or run == 26594:
         #     print(df.head)
         #     print(seg)
         #     print(df.loc[mask])
-        results[key]['times'].extend(df.loc[mask, 'Time (us)'].values)
-        results[key]['PE'].extend(df.loc[mask, 'PE'].values)
-        results[key]['bg_flag'].extend(df.loc[mask, 'Event'].values)
+        results[key]['times'].extend(df.loc[mask, 'Time (us)'].to_numpy())
+        results[key]['PE'].extend(df.loc[mask, 'PE'].to_numpy())
+        results[key]['bg_flag'].extend(df.loc[mask, 'Event'].to_numpy())
         
-        fillucn_sum[key] += per_seg_fill[str(seg)]
+        fillucn_sum[key] += float(per_seg_fill[str(int(seg))])
 
 print("Plotting PE Hist, max PE: ")
 
@@ -206,7 +210,7 @@ for i, seg in enumerate(SEGMENTS):
 
         tau, dtau = fit_tau_profiled(ys, ts)
         lifetimes.append(tau)
-        dlifetimes.append(dtau / 10000)
+        dlifetimes.append(dtau)
 
     lifetime_by_seg[seg] = (lifetimes, dlifetimes)
     plt.errorbar(thresholds, lifetimes, yerr=dlifetimes, fmt='o-', label=f'Segment {seg}')

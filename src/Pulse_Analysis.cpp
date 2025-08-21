@@ -14,7 +14,6 @@
 
 using namespace std;
 
-
 static void plot_fit_window(const std::string& out_png,
                             const std::string& title,
                             const std::vector<int>& hist,
@@ -26,7 +25,7 @@ static void plot_fit_window(const std::string& out_png,
         return;
 	
     gStyle->SetOptStat(0);
-	std::string cname = "c_fit_" + out_png;
+	string cname = "c_fit_" + out_png;
     TCanvas* c = new TCanvas(cname.c_str(), "Fit window", 1000, 600);
 	c->SetMargin(0.12, 0.05, 0.12, 0.08);
 	c->SetGrid(1, 1);
@@ -36,7 +35,7 @@ static void plot_fit_window(const std::string& out_png,
 	const double dx = (x.size() > 1 ? (x[1] - x[0]) : 1.0);
 
     // Histogram (observed)
-	std::string hname = "h_obs_" + out_png;
+	string hname = "h_obs_" + out_png;
     TH1D* h = new TH1D(hname.c_str(), title.c_str(), nb, 0.0, x.back() + dx);
     h->SetDirectory(nullptr); // don't register to gDirectory (August 20, 2025)
 	for (int i = 0; i < nb; ++i) h->SetBinContent((int)i+1, hist[i]);
@@ -46,38 +45,57 @@ static void plot_fit_window(const std::string& out_png,
     h->SetLineWidth(2);
     h->Draw("HIST");
 
-    // Total model
-    TGraph* gtot = new TGraph(nb);
-	for (int i = 0; i < nb; ++i) gtot->SetPoint(i, x[i], total[i]);
-	gtot->SetLineColor(kBlue+1);
-	gtot->SetLineWidth(3);
-	gtot->Draw("L SAME");
+	auto make_model_hist = [&](const string& name,
+							   const vector<double>& yvals,
+							   Color_t lineColor,
+							   Style_t lineStyle = 1,
+							   Width_t lineWidth = 2) {
+		TH1D* hm = new TH1D(name.c_str(), "", nb, 0.0, x.back() + dx);
+        hm->SetDirectory(nullptr);
+        for (int i = 0; i < nb; ++i) hm->SetBinContent(i+1, yvals[i]);
+        hm->SetFillStyle(0);         // no fill — outline only (bar-like top)
+        hm->SetLineColor(lineColor);
+        hm->SetLineStyle(lineStyle); // 1=solid, 2=dashed
+        hm->SetLineWidth(lineWidth);
+        hm->Draw("HIST SAME");       // flat-top bars
+        return hm;
+	};
 
-    // Components
-    TLegend* leg = new TLegend(0.62, 0.65, 0.88, 0.88);
-	leg->SetBorderSize(0);
-	leg->SetFillStyle(0);
-    leg->AddEntry(h, "Observed", "l");
-    leg->AddEntry(gtot, "Model total", "l");
+    // Make observed histogram explicitly outline-only too
+    h->SetFillStyle(0);              // no fill for the observed bars
+    h->SetMarkerStyle(0);
+    h->Draw("HIST");                 // already created above
 
+    // Total model as bar-like (flat-top) curve
+    std::string htot_name = "h_tot_" + out_png;
+    TH1D* htot = make_model_hist(htot_name, total, kBlue+1, 1, 3);
+
+    // Components as bar-like curves (dashed)
+    std::vector<TH1D*> hcomps;
+    hcomps.reserve(comps.size());
     int colors[6] = {kRed+1, kGreen+2, kMagenta+1, kOrange+1, kCyan+2, kViolet};
     for (size_t k = 0; k < comps.size(); ++k) {
-        TGraph* gk = new TGraph((int)comps[k].size());
-        for (int i = 0; i < (int)comps[k].size(); ++i) {
-            gk->SetPoint(i, x[i], comps[k][i]);
-        }
-		gk->SetLineStyle(2);
-        gk->SetLineWidth(2);
-        gk->SetLineColor(colors[k % 6]);
-		gk->Draw("L SAME");
-        leg->AddEntry(gk, Form("Pulse %d", (int)k+1), "l");
+        std::string hk_name = "h_comp_" + std::to_string(k) + "_" + out_png;
+        TH1D* hk = make_model_hist(hk_name, comps[k], colors[k % 6], 2, 2);
+        hcomps.push_back(hk);
+    }
+
+    // Legend (same entries, now referring to hist-style lines)
+    TLegend* leg = new TLegend(0.62, 0.65, 0.88, 0.88);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->AddEntry(h,    "Observed",     "l");
+    leg->AddEntry(htot, "Model total",  "l");
+    for (size_t k = 0; k < hcomps.size(); ++k) {
+        leg->AddEntry(hcomps[k], Form("Pulse %d", (int)k+1), "l");
     }
     leg->Draw();
 
     c->SaveAs(out_png.c_str());
 
-    delete h;
-	delete gtot;
+    delete htot;
+	for (auto* hk : hcomps) delete hk;
+	delete h;
 	delete leg;
 	delete c;
 }
@@ -100,7 +118,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		return;
 	}
 
-	out << "Segment, Time (us), PE, Event, Window Width\n";
+	out << "Segment, Time (us), PE, Event, Window Width, FineBinWidth\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
@@ -151,6 +169,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 				<< get<0>(event)/1e6 << ", "
 				<< get<1>(event) << ", "
 				<< get<3>(event) << ", "
+				<< get<5>(event) << ", "
 				<< "1 \n";
 		}
 
@@ -160,6 +179,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 				<< get<0>(event)/1e6 << ", "
 				<< get<1>(event) << ", "
 				<< get<3>(event) << ", "
+				<< get<5>(event) << ", "
 				<< "0 \n";
 		}
 	}

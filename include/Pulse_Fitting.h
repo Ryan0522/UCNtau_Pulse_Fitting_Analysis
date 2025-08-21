@@ -42,6 +42,8 @@ class Pulse_Fitting {
             setConfigKnobs(c.shift_us, c.seed_pe_default, c.gradient_threshold, c.guard_bin);
             pileupMinPulses_ = c.pileup_min_pulses;
             capturePlots_ = c.plot_fits;
+            preBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, binWidth_));
+            finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_));
         }
 
         double shift_us() const { return shiftUs_; }
@@ -65,8 +67,8 @@ class Pulse_Fitting {
         void setBackgroundWindow(double start_us); // background window [start, start+60s)
         void analyze(); // build windows, fit pulses, fill outputs
 
-        const std::vector<std::tuple<double, double, int, double, bool>>& getSignalPulses() const { return signalPulses_; }
-        const std::vector<std::tuple<double, double, int, double, bool>>& getBackgroundPulses() const { return backgroundPulses_; }
+        const std::vector<std::tuple<double, double, int, double, bool, bool>>& getSignalPulses() const { return signalPulses_; }
+        const std::vector<std::tuple<double, double, int, double, bool, bool>>& getBackgroundPulses() const { return backgroundPulses_; }
 
     private:
         double binWidth_ = 1.0; // primary histogram bin (us)
@@ -84,12 +86,14 @@ class Pulse_Fitting {
         double seedPE_ = 20.0;
         double gradThr_ = 2.0;
         int guardBin_ = 1;
+        int preBins_;
+        int finePreBins_;
 
         std::map<std::pair<int, double>, std::vector<std::vector<double>>> pdfCache_; // keyed by (nbins, binWidth)
 
-        // each tuple: (pulse_time_us, PE, window_index, window_width_us, is_pileup)
-        std::vector<std::tuple<double, double, int, double, bool>> signalPulses_;
-        std::vector<std::tuple<double, double, int, double, bool>> backgroundPulses_;
+        // each tuple: (pulse_time_us, PE, window_index, window_width_us, is_pileup, is_fineGrid)
+        std::vector<std::tuple<double, double, int, double, bool, bool>> signalPulses_;
+        std::vector<std::tuple<double, double, int, double, bool, bool>> backgroundPulses_;
         double peBackgroundRate_;
         double eventBackgroundRate_;
 
@@ -120,7 +124,7 @@ class Pulse_Fitting {
                         std::vector<int>& hist, std::vector<double>& xCenters); // build window hist from times[i...j)
         
         void fitRegion(const std::vector<double>& data_us,
-                    std::vector<std::tuple<double, double, int, double, bool>>& output);
+                    std::vector<std::tuple<double, double, int, double, bool, bool>>& output);
         
         std::vector<std::vector<double>> generatePDFLookup(const std::vector<double>& xCenters); // cached shifted PDFs
 
@@ -136,7 +140,7 @@ class Pulse_Fitting {
                                 
         bool fitPulses(const std::vector<int>& hist, const std::vector<double>& xCenters,
                     const std::vector<std::vector<double>>& pdfLookup,
-                    std::vector<double>& fittedPEs, std::vector<double>& fittedDTs); // NLOpt fit over PE, DT per pulse
+                    std::vector<double>& fittedPEs, std::vector<double>& fittedDTs, const double binWidth); // NLOpt fit over PE, DT per pulse
 };
 
 #endif // PULSE_FITTING_H

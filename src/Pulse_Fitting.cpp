@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <cmath>
 
 using namespace std;
 
@@ -160,7 +161,7 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
     }
 
     // --- NEW: prepend 5 us worth of empty bins so fitter origin is at -5 us (due to PDF generate algorithm in Pulse_Tail.cpp) ---
-    int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth));
+    int pre_bins = (binWidth == binWidth_) ? preBins_ : finePreBins_;
     if (pre_bins > 0) {
         hist.insert(hist.begin(), pre_bins, 0);
 
@@ -175,7 +176,7 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
 }
 
 void Pulse_Fitting::fitRegion(const vector<double>& data_us,
-                              vector<tuple<double, double, int, double, bool>>& output) 
+                              vector<tuple<double, double, int, double, bool, bool>>& output) 
 {
     // slide over data, window by window, fit pulses per window
     int i = 0;
@@ -187,14 +188,16 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         vector<double> xCenters;
         double windowWidth, startTime, endTime;
         int j;
+        double binWidth = binWidth_;
 
-        if (!makeHistogram(data_us, i, binWidth_, windowWidth, j, startTime, endTime, hist, xCenters)) {
+        if (!makeHistogram(data_us, i, binWidth, windowWidth, j, startTime, endTime, hist, xCenters)) {
             i = j;
             continue;
         }
 
         if (xCenters.size() < 2) {
-            if (!makeHistogram(data_us, i, fineBinWidth_, windowWidth, j, startTime, endTime, hist, xCenters)) {
+            binWidth = fineBinWidth_;
+            if (!makeHistogram(data_us, i, binWidth, windowWidth, j, startTime, endTime, hist, xCenters)) {
                 i = j;
                 continue;
             }
@@ -204,7 +207,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 
         vector<double> fittedPEs, fittedDTs;
 
-        bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs);
+        bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth);
         if (!success) {
             i = j;
             continue;
@@ -255,11 +258,10 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         }
 
         // --- NEW: convert DT to absolute time with +5us correction ---
-        const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth_));
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
             const int dt_bins = round_to_index(fittedDTs[k], (int)xCenters.size() - 1);
-            double pulse_time_us = startTime + dt_bins * binWidth_ + shiftUs_; // +5us correction
-            output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1); // store result
+            double pulse_time_us = startTime + dt_bins * binWidth + shiftUs_; // +5us correction
+            output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1, binWidth == fineBinWidth_); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
         }
         // --- end NEW (August 20, 2025) ---
@@ -347,14 +349,14 @@ vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thr
 
 bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCenters,
                               const vector<vector<double>>& pdfLookup,
-                              vector<double>& fittedPEs, vector<double>& fittedDTs) 
+                              vector<double>& fittedPEs, vector<double>& fittedDTs,
+                              const double binWidth) 
 {
     // seed candidates from gradient; then NLOpt (bounded) to fit PE, dt
     const int minPE = 5;
     const int window = 5;
 
     // Compute pre_bins from current bin width (5 us target) (August 20, 2025)
-    const double binWidth = binWidth_;
     const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth));
 
     // Use separate gradient peak detection function

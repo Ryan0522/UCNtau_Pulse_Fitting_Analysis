@@ -17,6 +17,6 @@
     "gradient_threshold": 2.0,
     "guard_bin": 1,
 
-    "plot_fits": true,
+    "plot_fits": false,
     "pileup_min_pulses": 2
 }
