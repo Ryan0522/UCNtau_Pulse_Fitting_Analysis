@@ -30,7 +30,10 @@ Plot_PDFs: src/File_Loader.cpp src/PDF_Lookup.cpp src/Plot_PDFs.cpp \
            include/File_Loader.h include/PDF_Lookup.h
 	$(CXX) $(CXXFLAGS) src/File_Loader.cpp src/PDF_Lookup.cpp src/Plot_PDFs.cpp -o $@ $(LDFLAGS)
 
+PEcoincidences2022: src/PEcoincidences2022.C
+	$(CXX) $(CXXFLAGS) src/PEcoincidences2022.C -o $@ $(LDFLAGS)
+
 clean:
-	rm -f Pulse_Analysis Runtime_Analysis_ Pulse_Tail ./Plot_PDFs
+	rm -f Pulse_Analysis Runtime_Analysis_ Pulse_Tail Plot_PDFs PEcoincidences2022
 
 .PHONY: clean
