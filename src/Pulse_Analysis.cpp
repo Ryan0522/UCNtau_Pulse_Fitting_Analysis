@@ -134,7 +134,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 
 		// plotting (if enabled and available)
 		if (cfg.plot_fits) {
-			std::string base = ensureTrailingSlash(output_folder) + "graphs/";
+			std::string base = ensureTrailingSlash(output_folder) + "graphs/PE_Fitting/";
 			// make sure the directory exists (cheap way; you might already mkdir -p elsewhere)
 			system((std::string("mkdir -p ") + base).c_str());
 

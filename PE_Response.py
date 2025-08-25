@@ -54,7 +54,7 @@ draw_panel(ax2, logy=True)
 ax2.set_title("Summed Tail Response (log y)")
 
 plt.tight_layout()
-outpath = os.path.join(GRAPH_DIR, "summed_tail_response_line.png")
+outpath = os.path.join(GRAPH_DIR, "PE_Response/summed_tail_response_line.png")
 plt.savefig(outpath)
 plt.close()
 print("Saved:", outpath)

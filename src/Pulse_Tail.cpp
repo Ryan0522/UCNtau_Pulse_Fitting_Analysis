@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     }
     leg2->Draw();
 
-    c1->SaveAs((output_folder + "/graphs/summed_tail_response" +
+    c1->SaveAs((output_folder + "/graphs/PE_Response/summed_tail_response" +
                 std::to_string(startrun) + "_" + std::to_string(endrun) + ".png").c_str());
     return 0;
 }

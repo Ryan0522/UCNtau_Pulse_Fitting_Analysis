@@ -222,7 +222,12 @@ int main(int argc, char **argv) {
 
         // --- load ---
         auto pulse = load_pulse_results(z, output_folder);
+
+        cout << "Loaded pulse output" << endl;
+
         auto coinc = load_coinc_results(z, output_folder);
+
+        cout << "Loaded coinc output" << endl;
 
         if (pulse.empty() && coinc.empty()) {
             cerr << "[Results_Comp] No data to compare for run " << run << endl;
