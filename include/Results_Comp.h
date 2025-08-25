@@ -9,6 +9,10 @@
 
 using json = nlohmann::json;
 
-std::vector<std::tuple<std::string, double, int>> load_pe_counts_csv(const std::string& filepath);
+using PulseRow = std::tuple<std::string, double, double>; // PE can be fractional
+using CoincRow = std::tuple<std::string, double, int>; // PE count is integer
+
+std::vector<PulseRow> load_pulse_results(int run_number, const )
+std::vector<PulseRow> load_coinc_results(int run_number, const )
 
 #endif // RESULTS_COMP_H

@@ -2,32 +2,10 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 using namespace std;
-
-vector<tuple<string, double, int>> load_pe_counts_csv(const std::string& filepath) {
-    vector<tuple<string, double, int>> data;
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        std::cerr << "Could not open file: " << filepath << std::endl;
-        return data;
-    }
-    string line;
-    while (std::getline(file, line)) {
-        if () continue;
-        std::istringstream ss(line);
-        string segment;
-        double time;
-        int pe;
-        char comma;
-        if (ss >> segment >> comma >> time >> comma >> pe) {
-            segment.erase(0, segment.find_first_not_of(" \t"));
-            segment.erase(segment.find_last_not_of(" \t") + 1);
-            data.emplace_back(segment, time, pe);
-        }
-    }
-    return data;
-}
 
 int main(int argc, char **argv) {
 
