@@ -22,11 +22,6 @@ static inline std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
-static bool try_open(const std::string& p) {
-    std::ifstream f(p);
-    return (bool)f;
-}
-
 vector<PulseRow> load_pulse_results(int run_number, const string& output_folder) {
     vector<PulseRow> rows;
     const string base = ensureTrailingSlash(output_folder);
@@ -71,7 +66,7 @@ vector<PulseRow> load_pulse_results(int run_number, const string& output_folder)
 vector<CoincRow> load_coinc_results(int run_number, const string& output_folder) {
     vector<CoincRow> rows;
     const string base = ensureTrailingSlash(output_folder) + "coincidences/";
-    const string path = base + "PECountsPerCoincRun" + std::to_string(run_number) + "_5PEthresholdtest.csv";
+    const string path = base + "testPECountsPerCoincRun" + std::to_string(run_number) + "_5PEthreshold.csv";
 
     std::ifstream in(path);
     if (!in.is_open()) {
@@ -97,83 +92,167 @@ vector<CoincRow> load_coinc_results(int run_number, const string& output_folder)
     return rows;
 }
 
-// Make quick side‑by‑side ROOT histograms:
-//  - Pulse PE (double) per segment
-//  - Coincidence N (int) per segment
-//  - Pulse time (us) per segment (simple distribution)
+// Make quick side‑by‑side ROOT histograms
 static void plot_comparisons(const std::vector<PulseRow>& pulse,
                              const std::vector<CoincRow>& coinc,
-                             const std::string& out_png_prefix)
+                             const std::string& out_png_prefix,
+                             const json& run_params)
 {
     gStyle->SetOptStat(0);
+    vector<string> segs = {"12","34","56","78"};
 
-    std::vector<std::string> segs = {"12","34","56","78"};
+    double start = (double)run_params["fill_time"] + (double)run_params["hold_time"] + (double)run_params["clean_time"] + 40;
+    double stop  = start + 60;
+	cout << "Start, End time for comparison: " <<start << ", " << stop << endl;
 
-    // --- Pulse PE distributions (0..300 PE) ---
+    // --- PE distributions Comparison ---
     {
-        TCanvas* c = new TCanvas("c_pulse_pe","Pulse PE by segment",1200,800);
+        TCanvas* c = new TCanvas("c_pe_overlay","PE distributions by segment",1200,800);
         c->Divide(2,2);
         for (size_t i=0;i<segs.size();++i) {
             c->cd((int)i+1); gPad->SetGrid();
-            TH1D* h = new TH1D(("h_pe_"+segs[i]).c_str(),
-                               ("Pulse PE (seg "+segs[i]+");PE;Counts").c_str(),
-                               300, 0, 300);
+
+            auto seg = segs[i];
+            auto h_pulse = new TH1D(("h_pulsePE_"+seg).c_str(),
+                                    ("PE (seg "+seg+");PE;Counts").c_str(),
+                                    160, 0, 160);
+
+            auto h_coinc = new TH1D(("h_coincPE_"+seg).c_str(),
+                                    ("PE (seg"+seg+");PE;Counts").c_str(),
+                                    160, 0, 160);
+
             for (const auto& r : pulse) {
-                if (std::get<0>(r) == segs[i]) h->Fill(std::get<2>(r));
+                if (std::get<0>(r) == seg) {
+                    double t_s = std::get<1>(r);
+                    if (t_s >= start && t_s <= stop) h_pulse->Fill(std::get<2>(r));
+
+                }
             }
-            h->SetLineWidth(2);
-            h->Draw("HIST");
+            for (const auto& r : coinc) {
+                if (std::get<0>(r) == seg) {
+                    double t_s = std::get<1>(r);
+                    if (t_s >= start && t_s <= stop) h_coinc->Fill(std::get<2>(r));
+
+                }
+            }
+            
+            h_pulse->SetLineColor(kBlue+1);  h_pulse->SetLineWidth(2);
+            h_coinc->SetLineColor(kRed+1);   h_coinc->SetLineWidth(2);
+
+            h_pulse->Draw("HIST");
+            h_coinc->Draw("HIST SAME");
+
+            auto leg = new TLegend(0.60,0.72,0.88,0.90);
+            leg->AddEntry(h_pulse, "PulseAnalysis PE", "l");
+            leg->AddEntry(h_coinc, "Coincidence PE",   "l");
+            leg->SetBorderSize(0);
+            leg->SetFillStyle(0);
+            leg->Draw();
         }
-        c->SaveAs((out_png_prefix + "_pulsePE.png").c_str());
+        c->SaveAs((out_png_prefix + "_PE_overlay.png").c_str());
         delete c;
     }
 
-    // --- Coincidence PE‑count distributions (N) ---
+    // --- PE distributions Comparison (LOG-Y) ---
     {
-        TCanvas* c = new TCanvas("c_coinc_N","Coincidence N by segment",1200,800);
+        TCanvas* c = new TCanvas("c_pe_overlay_log","PE distributions (log y) by segment",1200,800);
         c->Divide(2,2);
         for (size_t i=0;i<segs.size();++i) {
-            c->cd((int)i+1); gPad->SetGrid();
-            TH1D* h = new TH1D(("h_N_"+segs[i]).c_str(),
-                               ("Coincidence N (seg "+segs[i]+");N;Counts").c_str(),
-                               100, 0, 100);
-            for (const auto& r : coinc) {
-                if (std::get<0>(r) == segs[i]) h->Fill(std::get<2>(r));
+            c->cd((int)i+1);
+            gPad->SetGrid();
+            gPad->SetLogy(1);
+
+            auto seg = segs[i];
+            auto h_pulse = new TH1D(("h_pulsePE_log_"+seg).c_str(),
+                                    ("PE (seg "+seg+");PE;Counts").c_str(),
+                                    160, 0, 160);
+            auto h_coinc = new TH1D(("h_coincPE_log_"+seg).c_str(),
+                                    ("PE (seg "+seg+");PE;Counts").c_str(),
+                                    160, 0, 160);
+
+            // Fill with correct gating & units
+            for (const auto& r : pulse) {
+                if (std::get<0>(r) == seg) {
+                    double t_s = std::get<1>(r);
+                    if (t_s >= start && t_s <= stop) h_pulse->Fill(std::get<2>(r));
+                }
             }
-            h->SetLineWidth(2);
-            h->Draw("HIST");
+            for (const auto& r : coinc) {
+                if (std::get<0>(r) == seg) {
+                    double t_s = std::get<1>(r);
+                    if (t_s >= start && t_s <= stop) h_coinc->Fill((double)std::get<2>(r));
+                }
+            }
+
+            // Styles + log-safe minima + shared max
+            h_pulse->SetLineColor(kBlue+1);  h_pulse->SetLineWidth(2);
+            h_coinc->SetLineColor(kRed+1);   h_coinc->SetLineWidth(2);
+            h_pulse->SetMinimum(0.5);
+            h_coinc->SetMinimum(0.5);
+            double ymax = std::max(h_pulse->GetMaximum(), h_coinc->GetMaximum());
+            h_pulse->SetMaximum(ymax * 1.2);
+
+            h_pulse->Draw("HIST");
+            h_coinc->Draw("HIST SAME");
+
+            auto leg = new TLegend(0.60,0.72,0.88,0.90);
+            leg->AddEntry(h_pulse, "PulseAnalysis PE", "l");
+            leg->AddEntry(h_coinc, "Coincidence PE",   "l");
+            leg->SetBorderSize(0);
+            leg->SetFillStyle(0);
+            leg->Draw();
         }
-        c->SaveAs((out_png_prefix + "_coincN.png").c_str());
+        c->SaveAs((out_png_prefix + "_PE_overlay_log.png").c_str());
         delete c;
     }
 
-    // --- Pulse time distributions (µs) ---
+    // --- Pulse time distributions (s) (active window only) ---
     {
-        // find min/max time to choose a reasonable range
-        double tmin = std::numeric_limits<double>::infinity();
-        double tmax = -std::numeric_limits<double>::infinity();
-        for (const auto& r : pulse) {
-            tmin = std::min(tmin, std::get<1>(r));
-            tmax = std::max(tmax, std::get<1>(r));
-        }
-        if (!std::isfinite(tmin) || !std::isfinite(tmax) || tmin >= tmax) {
-            tmin = 0.0; tmax = 60.0 * 1e6; // default 60 s window in µs
-        }
-        int nbins = 200;
         TCanvas* c = new TCanvas("c_pulse_t","Pulse Time by segment",1200,800);
         c->Divide(2,2);
+
+        int nbins = 60;
         for (size_t i=0;i<segs.size();++i) {
             c->cd((int)i+1); gPad->SetGrid();
-            TH1D* h = new TH1D(("h_t_"+segs[i]).c_str(),
-                               ("Pulse Time (seg "+segs[i]+");Time (µs);Counts").c_str(),
-                               nbins, tmin, tmax);
+
+            auto seg = segs[i];
+            TH1D* h_pulse = new TH1D(("h_pulseT_"+seg).c_str(),
+                               ("Pulse Time (seg "+seg+");Time (s);Counts").c_str(),
+                               nbins, start, stop);
+            TH1D* h_coinc = new TH1D(("h_coincT_"+seg).c_str(),
+                               ("Pulse Time (seg "+seg+");Time (s);Counts").c_str(),
+                               nbins, start, stop);
+
             for (const auto& r : pulse) {
-                if (std::get<0>(r) == segs[i]) h->Fill(std::get<1>(r));
+                if (std::get<0>(r) == seg) {
+                    double t_s = std::get<1>(r);
+                    if (t_s >= start && t_s <= stop) h_pulse->Fill(t_s);
+                }
             }
-            h->SetLineWidth(2);
-            h->Draw("HIST");
+            for (const auto& r : coinc) {
+                if (std::get<0>(r) == seg) {
+                    double t_s = std::get<1>(r); // coinc times are in seconds → convert
+                    if (t_s >= start && t_s <= stop) h_coinc->Fill(t_s);
+                }
+            }
+
+            h_pulse->SetLineColor(kBlue+1);  h_pulse->SetLineWidth(2);
+            h_coinc->SetLineColor(kRed+1);   h_coinc->SetLineWidth(2);
+
+            double max_val = std::max(h_pulse->GetMaximum(), h_coinc->GetMaximum());
+            h_pulse->SetMaximum(max_val * 1.2);
+
+            h_pulse->Draw("HIST");
+            h_coinc->Draw("HIST SAME");
+
+            auto leg = new TLegend(0.60,0.72,0.88,0.90);
+            leg->AddEntry(h_pulse, "PulseAnalysis time", "l");
+            leg->AddEntry(h_coinc, "Coincidence time",   "l");
+            leg->SetBorderSize(0);
+            leg->SetFillStyle(0);
+            leg->Draw();
         }
-        c->SaveAs((out_png_prefix + "_pulseTime.png").c_str());
+        c->SaveAs((out_png_prefix + "_Time_overlay.png").c_str());
         delete c;
     }
 }
@@ -223,19 +302,19 @@ int main(int argc, char **argv) {
         // --- load ---
         auto pulse = load_pulse_results(z, output_folder);
 
-        cout << "Loaded pulse output" << endl;
+        cout << "Loaded pulse output: " << pulse.size() << " Entries" << endl;
 
         auto coinc = load_coinc_results(z, output_folder);
 
-        cout << "Loaded coinc output" << endl;
+        cout << "Loaded coinc output: " << coinc.size() << " Entries" << endl;
 
         if (pulse.empty() && coinc.empty()) {
             cerr << "[Results_Comp] No data to compare for run " << run << endl;
             continue;
         }
 
-        const string out_prefix = output_folder + "graphs/comp_run" + run;
-        plot_comparisons(pulse, coinc, out_prefix);
+        const string out_prefix = output_folder + "graphs/comparisons/" + run;
+        plot_comparisons(pulse, coinc, out_prefix, params[run]);
 	}	
 
 	return 0;

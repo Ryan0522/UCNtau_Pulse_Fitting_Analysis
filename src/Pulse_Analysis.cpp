@@ -118,7 +118,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		return;
 	}
 
-	out << "Segment, Time (us), PE, Event, Window Width, FineBinWidth\n";
+	out << "Segment, Time (s), PE, Event, Window Width, FineBinWidth\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently

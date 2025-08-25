@@ -276,10 +276,12 @@ void getunloadsbackgrounds(CoincidenceList cl, double avgkuval, double gammauval
 //TH1I* processfile(string runnum, int holdtime, int filltime, int cleantime, json params){//, TCanvas* pdf_canvas, TCanvas* pdf_canvas2){
 double processfile(json params, string runnum, int holdtime, int filltime, int cleantime, int threshold, double wc, double wp, double wt, int firstrun, int lastrun){//, TCanvas* pdf_canvas, TCanvas* pdf_canvas2){
 
-	double start = (double)params["fill_time"] + (double)params["hold_time"] + (double)params["clean_time"] + 40;
-	double stop = start + 60;
-	cout << "Start, End time for coincidence: " <<start << ", " << stop << endl;
-	
+	double start = (double)params["fill_time"] +
+               (double)params["hold_time"] +
+               (double)params["clean_time"] + 40;
+	double stop  = start + 60;
+	cout << "Start, End time for coincidences: " <<start << ", " << stop << endl;
+
 	string part1 = "../UCNtau_2022_raw_data/processed_output_";
 	string part3 = ".root";
 	string filename = part1+runnum+part3;
@@ -477,8 +479,9 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
     //fill histograms
     for (long i=0; i<tmcs_0->GetEntries();tmcs_0->GetEntry(i++))
     {
-		if ((evt0.channel == 1 or evt0.channel == 2) && evt0.realtime > start && evt0.realtime < stop) {PMT12.push_back(evt0); ch1ch2->Fill(evt0.realtime);}
-		else if ((evt0.channel == 3 or evt0.channel == 4) && evt0.realtime > start && evt0.realtime < stop) {PMT34.push_back(evt0); ch3ch4->Fill(evt0.realtime);}
+		if (evt0.realtime < start || evt0.realtime > stop) continue;
+		if (evt0.channel == 1 or evt0.channel == 2) {PMT12.push_back(evt0); ch1ch2->Fill(evt0.realtime);}
+		else if (evt0.channel == 3 or evt0.channel == 4) {PMT34.push_back(evt0); ch3ch4->Fill(evt0.realtime);}
         if      (evt0.channel == 1) {PMT_A.push_back(evt0); ch1->Fill(evt0.realtime);} //maybe?
         else if (evt0.channel == 2) {PMT_B.push_back(evt0); ch2->Fill(evt0.realtime);}
         else if (evt0.channel == 3) {ch3->Fill(evt0.realtime);} // the ->Fill() method is used to add a count to the histogram
@@ -489,8 +492,9 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
     
     for (long j=0; j<tmcs_1->GetEntries();tmcs_1->GetEntry(j++))
     {
-        if ((evt1.channel == 11 or evt1.channel == 12) && evt1.realtime > start && evt1.realtime < stop) {PMT1112.push_back(evt1); ch11ch12->Fill(evt1.realtime);}
-		else if ((evt1.channel == 13 or evt1.channel == 14) && evt1.realtime > start && evt1.realtime < stop) {PMT1314.push_back(evt1); ch13ch14->Fill(evt1.realtime);}
+		if (evt1.realtime < start || evt1.realtime > stop) continue;
+        if (evt1.channel == 11 or evt1.channel == 12) {PMT1112.push_back(evt1); ch11ch12->Fill(evt1.realtime);}
+		else if (evt1.channel == 13 or evt1.channel == 14) {PMT1314.push_back(evt1); ch13ch14->Fill(evt1.realtime);}
 		if      (evt1.channel == 11) {ch11->Fill(evt1.realtime);}
         else if (evt1.channel == 12) {ch12->Fill(evt1.realtime);}
         else if (evt1.channel == 13) ch13->Fill(evt1.realtime);
@@ -501,6 +505,7 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
     
     for (long k=0; k<tmcs_2->GetEntries();tmcs_2->GetEntry(k++))
     {
+		if (evt2.realtime < start || evt2.realtime > stop) continue;
         if      (evt2.channel == 21) {ch21->Fill(evt2.realtime);}
         else if (evt2.channel == 22) {ch22->Fill(evt2.realtime);}
         else if (evt2.channel == 23) ch23->Fill(evt2.realtime);
@@ -509,6 +514,7 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
 
 	ofstream somefile;
 	string outfile = "./output/coincidences/testPECountsRun26594.txt";
+	std::remove(outfile.c_str());
 	somefile.open(outfile, fstream::app);
 	auto ti = PMT12.begin();
 	while (ti!=PMT12.end()){
@@ -564,6 +570,9 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
 	TH1D* testh = new TH1D("testh", "test; time [s]; counts", int(run_duration)*10,0.0, run_duration);
 	TFile* fout = TFile::Open("testfile.root","recreate");
  
+	string csv_filename = "./output/coincidences/testPECountsPerCoincRun26594_5PEthreshold.csv";
+	std::remove(csv_filename.c_str());
+
  	//auto [un12, bg12, unp12, bgp12, undt12, bgdt12, unrde12, bgrde12, fillUCN12] = getunloadsbackgrounds(cl12, avgku12, gammau12, run_duration, holdtime, filltime, cleantime, threshold, ch1ch2, 12);
  	//auto [un34, bg34, unp34, bgp34, undt34, bgdt34, unrde34, bgrde34, fillUCN34] = getunloadsbackgrounds(cl34, avgku34, gammau34, run_duration, holdtime, filltime, cleantime, threshold, ch3ch4, 34);
  	//auto [un1112, bg1112, unp1112, bgp1112, undt1112, bgdt1112, unrde1112, bgrde1112, fillUCN1112] = getunloadsbackgrounds(cl1112, avgku1112, gammau1112, run_duration, holdtime, filltime, cleantime, threshold, ch11ch12, 56);

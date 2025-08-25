@@ -137,7 +137,7 @@ for _, r in runinfo.iterrows(): # aggregate all runs passing filter
         #     print(df.head)
         #     print(seg)
         #     print(df.loc[mask])
-        results[key]['times'].extend(df.loc[mask, 'Time (us)'].to_numpy())
+        results[key]['times'].extend(df.loc[mask, 'Time (s)'].to_numpy())
         results[key]['PE'].extend(df.loc[mask, 'PE'].to_numpy())
         results[key]['bg_flag'].extend(df.loc[mask, 'Event'].to_numpy())
         
