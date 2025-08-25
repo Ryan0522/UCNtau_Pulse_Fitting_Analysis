@@ -9,10 +9,12 @@
 
 using json = nlohmann::json;
 
-using PulseRow = std::tuple<std::string, double, double>; // PE can be fractional
-using CoincRow = std::tuple<std::string, double, int>; // PE count is integer
+// PulseAnalysis_<run>.csv rows: Segment(string), Time(us)(double), PE(double)
+using PulseRow = std::tuple<std::string, double, double>; // (seg, time_us, pe)
+// Coincidence rows: segment(string), time(s)(double), N(int)
+using CoincRow = std::tuple<std::string, double, int>;    // (seg, time_s, pe)
 
-std::vector<PulseRow> load_pulse_results(int run_number, const )
-std::vector<PulseRow> load_coinc_results(int run_number, const )
+std::vector<PulseRow> load_pulse_results(int run_number, const std::string& output_folder);
+std::vector<CoincRow> load_coinc_results(int run_number, const std::string& output_folder);
 
 #endif // RESULTS_COMP_H
