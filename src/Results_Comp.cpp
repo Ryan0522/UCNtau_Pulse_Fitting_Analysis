@@ -12,6 +12,7 @@
 #include <TH1D.h>
 #include <TLegend.h>
 #include <TStyle.h>
+#include <TGaxis.h>
 
 using namespace std;
 
@@ -211,9 +212,12 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         TCanvas* c = new TCanvas("c_pulse_t","Pulse Time by segment",1200,800);
         c->Divide(2,2);
 
-        int nbins = 60;
+        int nbins = 60; // 1 bin per second since stop = start + 60 (s)
+
         for (size_t i=0;i<segs.size();++i) {
             c->cd((int)i+1); gPad->SetGrid();
+            gPad->SetGrid();
+            gPad->SetRightMargin(0.14); // leave space for right axis
 
             auto seg = segs[i];
             TH1D* h_pulse = new TH1D(("h_pulseT_"+seg).c_str(),
@@ -239,15 +243,51 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             h_pulse->SetLineColor(kBlue+1);  h_pulse->SetLineWidth(2);
             h_coinc->SetLineColor(kRed+1);   h_coinc->SetLineWidth(2);
 
-            double max_val = std::max(h_pulse->GetMaximum(), h_coinc->GetMaximum());
-            h_pulse->SetMaximum(max_val * 1.2);
+            double leftMax = std::max(h_pulse->GetMaximum(), h_coinc->GetMaximum());
+            if (leftMax <= 0) leftMax = 1.0;
+            h_pulse->SetMaximum(leftMax * 1.2);
 
             h_pulse->Draw("HIST");
             h_coinc->Draw("HIST SAME");
 
+            // NEW --- Ratio: Pulse/Coinc per time bin on right axis ---
+            auto h_ratio = (TH1D*)h_coinc->Clone(("h_ratio_"+seg).c_str());
+            h_ratio->SetTitle("");
+            for (int b=1; b<=h_ratio->GetNbinsX(); ++b) {
+                double A = h_coinc->GetBinContent(b);
+                double B = h_pulse->GetBinContent(b);
+                h_ratio->SetBinContent(b, (A > 0.0) ? (B / A) : 0.0);
+            }
+            double rightMax = h_ratio->GetMaximum(); if (rightMax <= 0) rightMax = 1.0;
+
+            double scale = (h_pulse->GetMaximum()) / rightMax;
+            auto h_ratio_scaled = (TH1D*)h_ratio->Clone(("h_ratio_scaled_"+seg).c_str());
+            h_ratio_scaled->Scale(scale);
+            h_ratio_scaled->SetLineColor(kGreen+2);
+            h_ratio_scaled->SetLineStyle(2);
+            h_ratio_scaled->SetLineWidth(2);
+            h_ratio_scaled->Draw("HIST SAME");
+
+            gPad->Update();
+            double xRight = gPad->GetUxmax();
+            double yLow = gPad->GetUymin();
+            double yHigh = gPad->GetUymax();
+            auto axis = new TGaxis(xRight, yLow, xRight, yHigh, 0.0, rightMax, 510, "+L");
+            axis->SetTitle("Pulse/Coinc");
+            axis->SetTitleColor(kGreen+2);
+            axis->SetLabelColor(kGreen+2);
+            axis->SetLineColor(kGreen+2);
+            axis->SetLabelSize(0.035);
+            axis->SetTitleSize(0.040);
+            axis->SetTitleOffset(1.1);
+            axis->Draw();
+
+            // --- end: NEW (August 26, 2025) ---
+
             auto leg = new TLegend(0.60,0.72,0.88,0.90);
             leg->AddEntry(h_pulse, "PulseAnalysis time", "l");
             leg->AddEntry(h_coinc, "Coincidence time",   "l");
+            leg->AddEntry(h_ratio_scaled, "Pulse/Coinc Ratio (right axis)", "l");
             leg->SetBorderSize(0);
             leg->SetFillStyle(0);
             leg->Draw();
