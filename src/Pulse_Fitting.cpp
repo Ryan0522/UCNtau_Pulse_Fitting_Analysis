@@ -93,6 +93,37 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     eventBackgroundRate_ = backgroundPulses_.size() / 60.0;
 }
 
+vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWidth, const vector<double>& xCenters, const vector<vector<double>& pdfLookup)
+{
+    const int L = (int)xCenters.size();
+    vector<double> carry(L, 0.0);
+    if (L == 0 || pdfLookup.empty()) return carry;
+    
+    const double pdf_length_us = 100.0; // Length of the PDF tail was 100 (us).
+    const vector<double>& row0 = pdfLookup[0];
+
+    // drop pulses whose contribution can no longer overlap the current window
+    for (const auto& p : carryPulses_) {
+        const double t0 = p.first; // absolute time (us) of the pulse
+        const double PE = p.second;
+        const double dt0_us = t0 - winStartUs; // how far this window starts after that pulse
+        if (dt0_us > 0.0) continue; // pulse is in the window or later: don't "carry" (safe)
+        if (dt0_us <= pdf_length) continue; // too old: no overlap
+    
+        int dx0 = -(int)std::floor(dt0_us / binWidth);
+        if (dx0 < 0) dx0 = 0;
+        if (dx0 >= L) dx0 = L - 1;
+
+        const int max_k = std::min(L - dx0, (int)row0.size());
+        const auto& row = pdfLookup[0];
+        for (int j = 0; j < L; ++j) {
+            carry[j] += PE * row[j+dx0];
+        }
+    }
+
+    return carry;
+}
+
 void Pulse_Fitting::extractTimes(const EventList& events) {
     // linearize event.realtime (s) -> vector of times (us)
     vector<double> times;
@@ -306,12 +337,20 @@ double Pulse_Fitting::poissonLogLikelihood(const vector<int>& observed, const ve
 }
 
 double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vector<int>& observed,
-                                        const vector<vector<double>>& pdfLookup, int nPulses) 
+                                        const vector<vector<double>>& pdfLookup, int nPulses,
+                                        const vector<double>* fixedExpected) 
 {
     // params = [PE_0..PE_{n-1}, dt_0..dt_{n-1}] ; expected = sum_i PE_i * shiftedPDF(dt_i)
     vector<double> expected(observed.size(), 0.0);
+    
+    // --- NEW add fixed tail first (if provided) ---
+    if (fixedExpected) {
+        for (size_t j = 0; j < expected.size(); ++j)
+            expected[j] += (*fixedExpected)[j];
+    }
+    // --- end NEW (August 26, 2025)
+    
     const int nrows = (int)pdfLookup.size();
-
     for (int i = 0; i < nPulses; ++i) {
         const double PE = params[i];
         const int dt = round_to_index(params[nPulses + i], nrows - 1);
@@ -350,7 +389,8 @@ vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thr
 bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCenters,
                               const vector<vector<double>>& pdfLookup,
                               vector<double>& fittedPEs, vector<double>& fittedDTs,
-                              const double binWidth) 
+                              const double binWidth,
+                              const vector<double>* fixedExpected) 
 {
     // seed candidates from gradient; then NLOpt (bounded) to fit PE, dt
     const int minPE = 5;
@@ -416,7 +456,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     opt.set_upper_bounds(ub);
 
     auto objective = [&](const vector<double> &x, vector<double> &grad) {
-        return negLogLikelihood(x, hist, pdfLookup, nPulses);
+        return negLogLikelihood(x, hist, pdfLookup, nPulses, fixedExpected); // NEW: pass fixedExpected through (August 26, 2025)
     };
 
     opt.set_min_objective([](const vector<double> &x, vector<double> &grad, void *data) -> double {
@@ -468,7 +508,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         opt2.set_lower_bounds(lb);
         opt2.set_upper_bounds(ub);
         auto refinedObj = [&](const vector<double> &x, vector<double> &grad) {
-            return negLogLikelihood(x, hist, pdfLookup, refinedN);
+            return negLogLikelihood(x, hist, pdfLookup, refinedN, fixedExpected); // NEW: pass fixedExpected through (August 26, 2025)
         };
 
         opt2.set_min_objective([](const vector<double> &x, vector<double> &grad, void *data) -> double {

@@ -14,6 +14,32 @@
 
 using namespace std;
 
+std::ostream& operator<<(std::ostream& os, const Config& c) {
+    os << "data_folder        = " << c.data_folder << "\n";
+    os << "output_folder      = " << c.output_folder << "\n";
+    os << "runinfo_path       = " << c.runinfo_path << "\n";
+    os << "good_runs_path     = " << c.good_runs_path << "\n";
+    os << "start_run          = " << c.start_run << "\n";
+    os << "end_run            = " << c.end_run << "\n";
+    os << "save_to_txt        = " << c.save_to_txt << "\n";
+
+    os << "bin_width_us       = " << c.bin_width_us << "\n";
+    os << "fine_bin_width_us  = " << c.fine_bin_width_us << "\n";
+    os << "min_gap_us         = " << c.min_gap_us << "\n";
+    os << "pdf_csv_path       = " << c.pdf_csv_path << "\n";
+    os << "good_runs_count    = " << c.good_runs_set.size() << "\n";
+
+    os << "shift_us           = " << c.shift_us << "\n";
+    os << "seed_pe_default    = " << c.seed_pe_default << "\n";
+    os << "gradient_threshold = " << c.gradient_threshold << "\n";
+    os << "guard_bin          = " << c.guard_bin << "\n";
+
+    os << "plot_fits          = " << c.plot_fits << "\n";
+    os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
+
+    return os;
+}
+
 static void plot_fit_window(const std::string& out_png,
                             const std::string& title,
                             const std::vector<int>& hist,
@@ -118,7 +144,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		return;
 	}
 
-	out << "Segment, Time (s), PE, Event, Window Width, FineBinWidth\n";
+	out << "Segment, Time (s), PE, Window Width, isFineBinWidth, Event\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
@@ -165,11 +191,11 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 
 		// write signal pulsese (Event=1)
 		for (const auto& event : signalPulses) {
-			out << segment_labels[seg] << ", "
-				<< get<0>(event)/1e6 << ", "
-				<< get<1>(event) << ", "
-				<< get<3>(event) << ", "
-				<< get<5>(event) << ", "
+			out << segment_labels[seg] << ", " // Segment
+				<< get<0>(event)/1e6 << ", " // event time (us)
+				<< get<1>(event) << ", " // PE count
+				<< get<3>(event) << ", " // WindowWidth
+				<< get<5>(event) << ", " // binWidth (1) or fineBinWidth (0)
 				<< "1 \n";
 		}
 
@@ -191,15 +217,7 @@ int main(int argc, char **argv) {
 	Config cfg;
 	try {
 		cfg = load_config(argc, argv); // parse CLI/config, load runinfo + good runs
-		std::cout << "====================================" << std::endl;
-		std::cout << "Data folder: "   << cfg.data_folder   << "\n";
-        std::cout << "Output folder: " << cfg.output_folder << "\n";
-		std::cout << "Runinfo path: "  << cfg.runinfo_path  << "\n";
-		std::cout << "Good runs path: "<< cfg.good_runs_path<< "\n";
-        std::cout << "Start run: "     << cfg.start_run     << "\n";
-        std::cout << "End run: "       << cfg.end_run       << "\n";
-        std::cout << "Save to txt: "   << (cfg.save_to_txt ? "true" : "false") << "\n";
-        std::cout << "Good runs loaded: " << cfg.good_runs_set.size() << " entries\n";
+		std::cout << "========== Loaded Config ===========\n" << cfg << std::endl;
 		std::cout << "====================================" << std::endl;
 	} catch (const std::exception& e) {
 		cerr << "Error starting program: " << e.what() << endl;

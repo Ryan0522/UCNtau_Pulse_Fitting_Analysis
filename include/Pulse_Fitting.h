@@ -97,6 +97,11 @@ class Pulse_Fitting {
         double peBackgroundRate_;
         double eventBackgroundRate_;
 
+        // NEW (August 26, 2025): for tail subtraction
+        std::vector<std::pair<double, double>> carryPulses_; // stores (abs_time_us, PE) for pulses whose tails may leak into future windows
+        std::vector<double> buildCarryExpected(double winStartUs, double binWidth, const std::vector<double> xCenters, const std::vector<std::vector<double>>& pdfLookup);
+        // --- end NEW ---
+
         // NEW (2025/8/15): capture buffers
         bool capturePlots_ = false;
         int pileupMinPulses_ = 2;
@@ -134,13 +139,15 @@ class Pulse_Fitting {
         double negLogLikelihood(const std::vector<double>& params,
                                 const std::vector<int>& observed,
                                 const std::vector<std::vector<double>>& pdfLookup,
-                                int nPulses); // seed candidates
+                                int nPulses,
+                                const std::vector<double>* fixedExpected); // seed candidates
 
         std::vector<int> findGradientPeaks(const std::vector<int>& hist, double threshold);
                                 
         bool fitPulses(const std::vector<int>& hist, const std::vector<double>& xCenters,
                     const std::vector<std::vector<double>>& pdfLookup,
-                    std::vector<double>& fittedPEs, std::vector<double>& fittedDTs, const double binWidth); // NLOpt fit over PE, DT per pulse
+                    std::vector<double>& fittedPEs, std::vector<double>& fittedDTs, 
+                    const double binWidth, const std::vector<double>* fixedExpected = nullptr); // NLOpt fit over PE, DT per pulse
 };
 
 #endif // PULSE_FITTING_H

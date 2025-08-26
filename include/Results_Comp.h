@@ -10,7 +10,7 @@
 using json = nlohmann::json;
 
 // PulseAnalysis_<run>.csv rows: Segment(string), Time(us)(double), PE(double)
-using PulseRow = std::tuple<std::string, double, double>; // (seg, time_us, pe)
+using PulseRow = std::tuple<std::string, double, double, double>; // (seg, time_us, pe, window_width)
 // Coincidence rows: segment(string), time(s)(double), N(int)
 using CoincRow = std::tuple<std::string, double, int>;    // (seg, time_s, pe)
 

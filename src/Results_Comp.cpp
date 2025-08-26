@@ -50,16 +50,18 @@ vector<PulseRow> load_pulse_results(int run_number, const string& output_folder)
         }
 
         std::stringstream ss(line);
-        string seg_s, time_s, pe_s;
+        string seg_s, time_s, pe_s, ww_s;
 
         if (!std::getline(ss, seg_s, ',')) continue;
         if (!std::getline(ss, time_s, ',')) continue;
         if (!std::getline(ss, pe_s, ','))   continue;
+        if (!std::getline(ss, ww_s, ','))   continue;
 
         seg_s  = trim(seg_s);
         double t_us = std::stod(time_s);
-        double pe   = std::stod(pe_s);
-        rows.emplace_back(seg_s, t_us, pe);
+        double pe = std::stod(pe_s);
+        double ww = std::stod(ww_s);
+        rows.emplace_back(seg_s, t_us, pe, ww);
     }
     return rows;
 }
@@ -293,6 +295,72 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             leg->Draw();
         }
         c->SaveAs((out_png_prefix + "_Time_overlay.png").c_str());
+        delete c;
+    }
+
+        // --- Window Width (pulse-only) distributions by segment ---
+    {
+        TCanvas* c = new TCanvas("c_ww_pulse","Pulse Window Width (ww) by segment",1200,800);
+        c->Divide(2,2);
+
+        // Collect ww values per segment within the gated [start, stop]
+        std::map<std::string, std::vector<double>> ww_by_seg;
+        double ww_min = std::numeric_limits<double>::infinity();
+        double ww_max = -std::numeric_limits<double>::infinity();
+
+        for (const auto& r : pulse) {
+            const std::string& seg = std::get<0>(r);
+            double t_s  = std::get<1>(r);
+            double ww   = std::get<3>(r); // <- Window Width
+
+            if (t_s >= start && t_s <= stop) {
+                ww_by_seg[seg].push_back(ww);
+                if (ww < ww_min) ww_min = ww;
+                if (ww > ww_max) ww_max = ww;
+            }
+        }
+
+        // Guard: if no ww data was found, skip plotting
+        if (!std::isfinite(ww_min) || !std::isfinite(ww_max)) {
+            std::cerr << "[plot_comparisons] No ww entries found in time gate for pulse data.\n";
+        } else {
+            // Make sure the range is reasonable for ROOT (non-zero width)
+            if (ww_max <= ww_min) {
+                ww_max = ww_min + 1.0;
+            }
+
+            const int nbins = 50; // adjust if you want finer/coarser
+            for (size_t i = 0; i < segs.size(); ++i) {
+                c->cd((int)i+1);
+                gPad->SetGrid();
+
+                const auto& seg = segs[i];
+                auto h_ww = new TH1D(("h_ww_"+seg).c_str(),
+                                     ("Pulse Window Width (seg "+seg+");ww;Counts").c_str(),
+                                      nbins, ww_min, ww_max);
+
+                auto it = ww_by_seg.find(seg);
+                if (it != ww_by_seg.end()) {
+                    for (double v : it->second) h_ww->Fill(v);
+                }
+
+                h_ww->SetLineColor(kBlue+1);
+                h_ww->SetLineWidth(2);
+                h_ww->Draw("HIST");
+
+                // quick stats in the pad
+                double mean = h_ww->GetMean();
+                double rms  = h_ww->GetRMS();
+                auto leg = new TLegend(0.60,0.75,0.88,0.90);
+                leg->AddEntry(h_ww, "Pulse ww", "l");
+                leg->AddEntry((TObject*)0, Form("Mean = %.3g", mean), "");
+                leg->AddEntry((TObject*)0, Form("RMS  = %.3g", rms),  "");
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->Draw();
+            }
+            c->SaveAs((out_png_prefix + "_WW_pulse.png").c_str());
+        }
         delete c;
     }
 }

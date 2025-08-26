@@ -9,7 +9,7 @@
     
     "binWidth": 0.25,
     "fineBinWidth": 0.25,
-    "binGap": 40,
+    "minGap": 40,
     "pdf_csv_path": "./config/all_tail_response.csv",
 
     "shift_us": 5.0,
