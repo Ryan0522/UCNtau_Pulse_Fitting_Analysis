@@ -13,6 +13,16 @@ static inline bool same_bw(double a, double b) {
     return std::abs(a - b) <= 1e-12 * std::max(1.0, std::abs(a));
 }
 
+std::vector<double> get_full_pdf(int seg_id, double binWidth) {
+    std::vector<double> empty;
+    if (!g_pdf_lookup) return empty;
+    const auto* base = g_pdf_lookup->get(seg_id);
+    if (!base) return empty;
+    if (same_bw(binWidth, base->binWidth)) return base->p;
+    if (same_bw(binWidth, base->fineBinWidth)) return base->p_f;
+    return empty;
+}
+
 std::vector<double> shifted_pdf(int seg_id, double binWidth, int shift_bins, int nBins) {
     std::vector<double> dst(nBins, 0.0);
     if (!g_pdf_lookup) return dst;

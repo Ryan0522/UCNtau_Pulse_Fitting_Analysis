@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
 	Config cfg;
 	try {
 		cfg = load_config(argc, argv); // parse CLI/config, load runinfo + good runs
-		std::cout << "========== Loaded Config ===========\n" << cfg << std::endl;
+		std::cout << "\n========== Loaded Config ===========\n" << cfg << std::endl;
 		std::cout << "====================================" << std::endl;
 	} catch (const std::exception& e) {
 		cerr << "Error starting program: " << e.what() << endl;

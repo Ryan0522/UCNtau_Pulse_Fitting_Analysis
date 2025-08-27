@@ -70,6 +70,8 @@ class Pulse_Fitting {
         const std::vector<std::tuple<double, double, int, double, bool, bool>>& getSignalPulses() const { return signalPulses_; }
         const std::vector<std::tuple<double, double, int, double, bool, bool>>& getBackgroundPulses() const { return backgroundPulses_; }
 
+        const double getBackgroundRate() const { return peBackgroundRate_; }
+
     private:
         double binWidth_ = 1.0; // primary histogram bin (us)
         double fineBinWidth_ = 0.25; // fallback giner bining (us)
@@ -99,7 +101,7 @@ class Pulse_Fitting {
 
         // NEW (August 26, 2025): for tail subtraction
         std::vector<std::pair<double, double>> carryPulses_; // stores (abs_time_us, PE) for pulses whose tails may leak into future windows
-        std::vector<double> buildCarryExpected(double winStartUs, double binWidth, const std::vector<double> xCenters, const std::vector<std::vector<double>>& pdfLookup);
+        std::vector<double> buildCarryExpected(double winStartUs, double binWidth, const std::vector<double>& xCenters) const;
         // --- end NEW ---
 
         // NEW (2025/8/15): capture buffers

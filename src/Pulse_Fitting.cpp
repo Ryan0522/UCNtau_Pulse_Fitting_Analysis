@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <nlopt.hpp>
 #include <iostream>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <cmath>
@@ -93,34 +94,31 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     eventBackgroundRate_ = backgroundPulses_.size() / 60.0;
 }
 
-vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWidth, const vector<double>& xCenters, const vector<vector<double>& pdfLookup)
+vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWidth, const vector<double>& xCenters) const
 {
     const int L = (int)xCenters.size();
     vector<double> carry(L, 0.0);
-    if (L == 0 || pdfLookup.empty()) return carry;
-    
-    const double pdf_length_us = 100.0; // Length of the PDF tail was 100 (us).
-    const vector<double>& row0 = pdfLookup[0];
+    if (L == 0) return carry;
 
-    // drop pulses whose contribution can no longer overlap the current window
-    for (const auto& p : carryPulses_) {
-        const double t0 = p.first; // absolute time (us) of the pulse
-        const double PE = p.second;
-        const double dt0_us = t0 - winStartUs; // how far this window starts after that pulse
-        if (dt0_us > 0.0) continue; // pulse is in the window or later: don't "carry" (safe)
-        if (dt0_us <= pdf_length) continue; // too old: no overlap
-    
-        int dx0 = -(int)std::floor(dt0_us / binWidth);
-        if (dx0 < 0) dx0 = 0;
-        if (dx0 >= L) dx0 = L - 1;
+    const vector<double> base = get_full_pdf(segmentId_, binWidth);
+    if (base.empty()) return carry;
+    const int fullBins = (int)base.size();
+    const double pdf_len_us = fullBins * binWidth;
 
-        const int max_k = std::min(L - dx0, (int)row0.size());
-        const auto& row = pdfLookup[0];
-        for (int j = 0; j < L; ++j) {
-            carry[j] += PE * row[j+dx0];
+    for (const auto& pr : carryPulses_) {
+        const double t0_us = pr.first; // absolute time (us)
+        const double PE = pr.second;
+        const double age = winStartUs - t0_us; // >= 0 means the peak of the pdf is to the left of current window
+
+        if (age < 0.0) continue; // skip pulses in current window (if any) (this is for safety)
+        if (age >= pdf_len_us) continue; // the entire PDF is to the left of current window
+
+        const int dx = (int)std::floor(age / binWidth);
+        const int copy_len = std::min(L, fullBins - dx);
+        for (int j = 0; j < copy_len; ++j) {
+            carry[j] += PE * base[j + dx];
         }
     }
-
     return carry;
 }
 
@@ -234,11 +232,24 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             }
         }
 
+        const vector<double> base = get_full_pdf(segmentId_, binWidth);
+        const double pdf_len_us = base.empty() ? 0.0 : base.size() * binWidth;
+
+        if (pdf_len_us > 0.0) {
+            carryPulses_.erase(
+                std::remove_if(carryPulses_.begin(), carryPulses_.end(),
+                                [&](const auto& pr){ return (startTime - pr.first) >= pdf_len_us; }),
+                carryPulses_.end()
+            );
+        }
+
+        std::vector<double> carry = buildCarryExpected(startTime, binWidth, xCenters); // FIX
+
         vector<vector<double>> pdfLookup = generatePDFLookup(xCenters); // shifted PDFs cache
 
         vector<double> fittedPEs, fittedDTs;
 
-        bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth);
+        bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth, &carry);
         if (!success) {
             i = j;
             continue;
@@ -288,14 +299,16 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             }
         }
 
-        // --- NEW: convert DT to absolute time with +5us correction ---
+        // --- NEW: Added pulse subtraction functionalities ---
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
-            const int dt_bins = round_to_index(fittedDTs[k], (int)xCenters.size() - 1);
+            int dt_bins = round_to_index(fittedDTs[k], (int)xCenters.size() - 1);
+            dt_bins = std::max(0, std::min(dt_bins, (int)xCenters.size() - 1)); // FIX
             double pulse_time_us = startTime + dt_bins * binWidth + shiftUs_; // +5us correction
             output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1, binWidth == fineBinWidth_); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
+            carryPulses_.emplace_back(pulse_time_us, fittedPEs[k]); // FIX
         }
-        // --- end NEW (August 20, 2025) ---
+        // --- end NEW (August 26, 2025) ---
 
         windowCount++;
         i = j;
@@ -345,19 +358,29 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
     
     // --- NEW add fixed tail first (if provided) ---
     if (fixedExpected) {
-        for (size_t j = 0; j < expected.size(); ++j)
-            expected[j] += (*fixedExpected)[j];
+        for (size_t j = 0; j < expected.size(); ++j) {
+            double v = (*fixedExpected)[j];
+            if (!std::isfinite(v) || v < 0) v = 0.0;
+            expected[j] = v;
+        }
     }
     // --- end NEW (August 26, 2025)
     
     const int nrows = (int)pdfLookup.size();
     for (int i = 0; i < nPulses; ++i) {
         const double PE = params[i];
-        const int dt = round_to_index(params[nPulses + i], nrows - 1);
+        if (!std::isfinite(PE)) return 1e300;
+        int dt = round_to_index(params[nPulses + i], nrows - 1);
         const auto& row = pdfLookup[dt];
-        for (size_t j = 0; j < observed.size(); ++j)
-            expected[j] += PE * row[j];
+        for (size_t j = 0; j < observed.size(); ++j) {
+            double add = PE * row[j];
+            if (!std::isfinite(add) || add < 0) return 1e300;
+            expected[j] += add;
+        }
     }
+
+    for (double& lam : expected) if (!(lam > 0.0)) lam = 1e-12;
+
     return -poissonLogLikelihood(observed, expected);
 }
 
