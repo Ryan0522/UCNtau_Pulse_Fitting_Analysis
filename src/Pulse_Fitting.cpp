@@ -353,6 +353,10 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
                                         const vector<vector<double>>& pdfLookup, int nPulses,
                                         const vector<double>* fixedExpected) 
 {
+    const int T = (int)observed.size();
+    const int nrows = (int)pdfLookup.size();
+    if (nrows < 2 || T == 0) return 1e300;
+    
     // params = [PE_0..PE_{n-1}, dt_0..dt_{n-1}] ; expected = sum_i PE_i * shiftedPDF(dt_i)
     vector<double> expected(observed.size(), 0.0);
     
@@ -366,22 +370,34 @@ double Pulse_Fitting::negLogLikelihood(const vector<double>& params, const vecto
     }
     // --- end NEW (August 26, 2025)
     
-    const int nrows = (int)pdfLookup.size();
     for (int i = 0; i < nPulses; ++i) {
-        const double PE = params[i];
-        if (!std::isfinite(PE)) return 1e300;
-        int dt = round_to_index(params[nPulses + i], nrows - 1);
-        const auto& row = pdfLookup[dt];
+        double PE = params[i];
+        if (!(PE >= 0.0) || !std::isfinite(PE)) return 1e300;
+
+        double dt = params[nPulses + i];
+        if (!std::isfinite(dt)) return 1e300;
+
+        if (dt < 0.0) dt = 0.0;
+        const double ub_dt = (double)(nrows - 1) - 1e-9;
+        if (dt > ub_dt) dt = ub_dt;
+
+        int i0 = (int)std::floor(dt);
+        double a = dt - i0; // 0 <= a < 1
+        const auto& r0 = pdfLookup[i0];
+        const auto& r1 = pdfLookup[i0 + 1];
+
         for (size_t j = 0; j < observed.size(); ++j) {
-            double add = PE * row[j];
+            double rowj = (1.0 - a) * r0[j] + a * r1[j];
+            double add = PE * rowj;
             if (!std::isfinite(add) || add < 0) return 1e300;
             expected[j] += add;
         }
     }
 
-    for (double& lam : expected) if (!(lam > 0.0)) lam = 1e-12;
+    for (double& lam : expected) if (lam < 0.0) lam = 1e-12;
 
-    return -poissonLogLikelihood(observed, expected);
+    double val = -poissonLogLikelihood(observed, expected);
+    return std::isfinite(val) ? val : 1e300;
 }
 
 vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thresholdFactor) {
@@ -470,7 +486,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     // DT bounds --- Changed: lower bound locked at pre_bins (== 5us) ---
     for (int i = 0; i < nPulses; ++i) {
         lb.push_back(0.0);
-        ub.push_back(static_cast<double>(xCenters.size() - 1.5));
+        ub.push_back((double)xCenters.size() - 1.000001);
     }
     // --- end Changed (August 20, 2025) ---
 
@@ -494,6 +510,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         nlopt::result result = opt.optimize(params, minf);
     } catch (exception& e) {
         dump_params_bounds(params, lb, ub, nPulses, "on-error");
+        std::cerr << "[NLopt] optimize() failed: " << e.what() << "\n";
         throw std::runtime_error("Fatal NLopt failure, exiting.");
         return false;
     }
@@ -524,7 +541,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             lb.push_back(1.0); ub.push_back(300.0);
         }
         for (int i = 0; i < refinedN; ++i) {
-            lb.push_back(0.0); ub.push_back(static_cast<double>(xCenters.size() - 1.5));
+            lb.push_back(0.0); ub.push_back((double)xCenters.size() - 1.000001);
         }
 
         nlopt::opt opt2(nlopt::LN_BOBYQA, refinedParams.size());
@@ -548,6 +565,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             fittedDTs.assign(refinedParams.begin() + refinedN, refinedParams.end());
         } catch (exception& e) {
             dump_params_bounds(refinedParams, lb, ub, refinedN, "on-error refined");
+            std::cerr << "[NLopt] optimize() failed: " << e.what() << "\n";
             throw std::runtime_error("Fatal NLopt failure, exiting.");
             return false;
         }
