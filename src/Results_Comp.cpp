@@ -142,7 +142,7 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
     for (const auto& w : ws_all) { mn = std::min(mn, w.negLogL); mx = std::max(mx, w.negLogL); }
     if (mx <= mn) mx = mn + 1.0;
 
-    TCanvas* c = new TCanvas("c_neglog", "Negative Log-Likelihood", 1000, 650);
+    TCanvas* c = new TCanvas("c_neglogL", "Negative Log-Likelihood", 1000, 650);
     TH1D* h = new TH1D("h_neglog", "Negative Log-Likelihood; -logL; Windows", nbins, mn, mx);
     for (const auto& w : ws_all) h->Fill(w.negLogL);
 
@@ -152,6 +152,18 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
     c->Update();
     c->SaveAs((out_png_prefix + "_neglogL_dist.png").c_str());
     delete c;
+
+    TCanvas* c_log = new TCanvas("c_neglogL_log", "Negative Log-Likelihood (log_)", 1000, 650);
+    TH1D* h_log = new TH1D("h_neglog_log", "Negative Log-Likelihood (log); -logL; Windows", nbins, mn, mx);
+    for (const auto& w : ws_all) h->Fill(w.negLogL);
+
+    c_log->SetGrid();
+    c_log->SetLogy(1);
+    h_log->SetLineWidth(2);
+    h_log->Draw("HIST");
+    c_log->Update();
+    c_log->SaveAs((out_png_prefix + "_neglogL_dist_log.png").c_str());
+    delete c_log;
 }
 
 void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix)

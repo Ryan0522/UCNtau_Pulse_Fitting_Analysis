@@ -371,7 +371,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     for (size_t i=0;i<newPE.size();++i) seeds.emplace_back(newDT[i], newPE[i]);
     std::sort(seeds.begin(), seeds.end(), [](auto a, auto b){ return a.first < b.first; });
 
-    const int closeBins = 10;
+    const int closeBins = 4;
     auto clusters = cluster_seeds(seeds, closeBins);
 
     KSelectOptions kopt;
@@ -397,11 +397,32 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         }
     }
     
-    auto finalR = fit_global_from_selections(prob, chosenPEs, chosenDTs, peMin, peMax, dtMin, dtMax, 200);
-    if (!finalR.ok || finalR.PEs.empty()) return false;
+    auto r = fit_global_from_selections(prob, chosenPEs, chosenDTs, peMin, peMax, dtMin, dtMax, 200);
+    if (!r.ok || r.PEs.empty()) return false;
 
-    fittedPEs = finalR.PEs;
-    fittedDTs = finalR.DTs;
+    auto prune = [&](const std::vector<double>& P, const std::vector<double>& D){
+        std::vector<double> p2, d2;
+        for (size_t i=0;i<P.size();++i) if (P[i] >= 5.0) { p2.push_back(P[i]); d2.push_back(D[i]); }
+        return std::make_pair(std::move(p2), std::move(d2));
+    };
+
+    {
+        auto pr = prune(r.PEs, r.DTs);
+        if (pr.first.empty()) return false;
+        r.PEs.swap(pr.first); r.DTs.swap(pr.second);
+    }
+
+    for (int it=0; it<3; ++it) {
+        auto r2 = fit_n_pulses_bobyqa(prob, (int)r.PEs.size(), r.PEs, r.DTs, peMin, peMax, dtMin, dtMax, 200);
+        if (!r2.ok) break;
+        auto pr2 = prune(r2.PEs, r2.DTs);
+        if ((int)pr2.first.size() == (int)r.PEs.size()) { r = r2; break; } // 收斂
+        if (pr2.first.empty()) return false;
+        r.PEs.swap(pr2.first); r.DTs.swap(pr2.second);
+    }
+
+    fittedPEs = std::move(r.PEs);
+    fittedDTs = std::move(r.DTs);
 
     vector<double> expected(hist.size(), 0.0);
     if (fixedExpected) {

@@ -168,22 +168,36 @@ cluster_seeds(const std::vector<std::pair<double,double>>& s, int closeBins) {
     return clusters;
 }
 
-static void init_k_uniform(
+static void init_k_weighted(
     const std::vector<std::pair<double, double>>& cl, 
-    int k,
+    int K,
     std::vector<double>& pe0,
     std::vector<double>& dt0)
 {
-    double PE_sum = 0, dt_min = cl.front().first, dt_max = cl.back().first;
-    for (auto& p : cl) {
-        PE_sum += p.second;
-        dt_min = std::min(dt_min, p.first);
-        dt_max = std::max(dt_max, p.first);
+    K = std::max(1, K);
+    pe0.clear(); dt0.clear();
+    if (cl.empty()) { pe0.assign(K, 1.0); dt0.assign(K, 0.0); return; }
+
+    double wsum = 0.0;
+    for (const auto& s : cl) wsum += std::max(1.0, s.second);
+
+    pe0.assign(K, std::max(1.0, wsum / K));
+    dt0.resize(K);
+
+    const double step = wsum / K;
+
+    // two-pointer cumulative scan (using acc. weight to split dts)
+    // following cl, find each index for (i+0.5)*step 
+    double acc = 0.0; // accumulated weight
+    size_t j = 0;// cl index
+    for (int i=0; i<K; ++i) {
+        const double target = (i + 0.5) * step;
+        while (j + 1 < cl.size() && acc + std::max(1.0, cl[j].second) < target) {
+            acc += std::max(1.0, cl[j].second);
+            ++j;
+        }
+        dt0[i] = cl[j].first; // use dt0 near where the weight cut it
     }
-    pe0.assign(k, std::max(1.0, PE_sum / std::max(1, k)));
-    dt0.resize(k);
-    if (dt_max <= dt_min) { for (int i=0;i<k;++i) dt0[i] = dt_min; }
-    else { for (int i=0;i<k;++i) dt0[i] = dt_min + (dt_max - dt_min) * (i + 0.5) / k; }
 }
 
 std::pair<FitResult,int> select_k_for_cluster(
@@ -194,7 +208,7 @@ std::pair<FitResult,int> select_k_for_cluster(
     FitResult best; int best_k = 0;
     const int m = (int)cl.size();
     for (int k=1;k<=m;++k){
-        std::vector<double> pe0, dt0; init_k_uniform(cl, k, pe0, dt0);
+        std::vector<double> pe0, dt0; init_k_weighted(cl, k, pe0, dt0);
         FitResult r = fit_n_pulses_bobyqa(prob, k, pe0, dt0, peMin, peMax, dtMin, dtMax, opt.maxEval);
         if (!r.ok) continue;
         double s = opt.useBIC ? (2.0*r.nll + (2*k)*std::log(std::max(1, prob.nTime))) : r.nll;
