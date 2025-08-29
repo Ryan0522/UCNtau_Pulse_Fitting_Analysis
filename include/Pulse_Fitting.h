@@ -8,13 +8,6 @@
 #include <cmath>
 #include "File_Loader.h" // For EventList
 
-struct PDFParams {
-    // parameters for the PDF model of PE response from the PMTs
-    double ratio1, ratio2, ratio3;
-    double scale1, scale2, scale3;
-    double loc;
-};
-
 struct WindowStat {
     int windowIndex;
     double startTimeUs;
@@ -24,13 +17,6 @@ struct WindowStat {
     int nObserved; // PE his sum count
     double nExpected; // PDF fit sum count
 };
-
-extern PDFParams pdfParams_;
-extern std::vector<double> log_fact_table;
-extern std::vector<double> log_lambda_table;
-std::vector<double> makeLogFactorialTable(int max_k);
-std::vector<double> makeLogLambdaTable();
-double getLogLambda(double lam);
 
 class Pulse_Fitting {
     public:
@@ -149,15 +135,6 @@ class Pulse_Fitting {
                     std::vector<std::tuple<double, double, int, double, bool, bool>>& output);
         
         std::vector<std::vector<double>> generatePDFLookup(const std::vector<double>& xCenters); // cached shifted PDFs
-
-        double poissonLogLikelihood(const std::vector<int>& observed,
-                                    const std::vector<double>& expected);
-
-        double negLogLikelihood(const std::vector<double>& params,
-                                const std::vector<int>& observed,
-                                const std::vector<std::vector<double>>& pdfLookup,
-                                int nPulses,
-                                const std::vector<double>* fixedExpected); // seed candidates
 
         std::vector<int> findGradientPeaks(const std::vector<int>& hist, double threshold);
                                 
