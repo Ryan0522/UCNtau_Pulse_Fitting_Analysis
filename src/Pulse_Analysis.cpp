@@ -136,15 +136,17 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	
 	vector<string> segment_labels = {"12", "34", "56", "78"};
 	vector<int> seg_ids = {12, 34, 56, 78};
-	string output_file = output_folder + "results/PulseAnalysis_" + to_string(params["run_number"]) + ".csv";
+	string pulses_file = output_folder + "results/PulseAnalysis_" + to_string(params["run_number"]) + ".csv";
+	string windows_file = output_folder + "results/PulseWindowStats_" + to_string(params["run_number"]) + ".csv";
 
-	ofstream out(output_file);
-	if (!out.is_open()) {
-		cerr << "Error opening output file: " << output_file << endl;
+	ofstream out(pulses_file);
+	ofstream ws(windows_file);
+	if (!out.is_open() || !ws.is_open()) {
+		cerr << "Error opening output file: " << pulses_file << ", or: " << windows_file << endl;
 		return;
 	}
-
 	out << "Segment, Time (s), PE, Window Width, isFineBinWidth, Event\n";
+	ws << "Segment,Window,Start,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
@@ -188,7 +190,8 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 
 		auto signalPulses = fitter.getSignalPulses();
 		auto backgroundPulses = fitter.getBackgroundPulses();
-
+		const auto& stats = fitter.getWindowStats();
+		
 		// write signal pulsese (Event=1)
 		for (const auto& event : signalPulses) {
 			out << segment_labels[seg] << ", " // Segment
@@ -207,6 +210,19 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 				<< get<3>(event) << ", "
 				<< get<5>(event) << ", "
 				<< "0 \n";
+		}
+
+		// write window statistics (Event only)
+		for (const auto& s : stats) {
+			if (s.startTimeUs / 1e6 > stop) continue;
+			ws << segment_labels[seg] << ","
+			<< s.windowIndex << ","
+			<< s.startTimeUs/1e6 << ","
+			<< s.binWidthUs << ","
+			<< s.nPulsesChosen << ","
+			<< -s.logL << ","
+			<< s.nObserved << ","
+			<< s.nExpected << "\n";
 		}
 	}
 	

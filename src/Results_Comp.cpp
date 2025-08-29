@@ -13,6 +13,8 @@
 #include <TLegend.h>
 #include <TStyle.h>
 #include <TGaxis.h>
+#include <TGraph.h>
+#include <TLine.h>
 
 using namespace std;
 
@@ -93,6 +95,99 @@ vector<CoincRow> load_coinc_results(int run_number, const string& output_folder)
         rows.emplace_back(seg, time_val, pe_val);
     }
     return rows;
+}
+
+std::vector<WindowRow> load_window_stats(int run_number, const std::string& output_folder) {
+    std::vector<WindowRow> rows;
+    const string base = ensureTrailingSlash(output_folder) + "results/";
+    const string path = base + "PulseWindowStats_" + std::to_string(run_number) + ".csv";
+
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        cerr << "[load_coinc_results] Cannot open: " << path << endl;
+        return rows;
+    }
+
+    string line;
+    bool is_header = true;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        if (is_header) { is_header = false; continue; }
+
+        std::stringstream ss(line);
+        std::string tok;
+        std::vector<std::string> col;
+        while (std::getline(ss, tok, ',')) col.push_back(trim(tok));
+        if (col.size() < 8) continue;
+        WindowRow r;
+        r.segment = col[0];
+        r.windowIndex = std::stoi(col[1]);
+        r.start = std::stod(col[2]);
+        r.binWidth_us = std::stod(col[3]);
+        r.nPulses = std::stoi(col[4]);
+        r.negLogL = std::stod(col[5]);
+        r.N_obs = std::stoi(col[6]);
+        r.N_exp = std::stod(col[7]);
+
+        rows.push_back(std::move(r));
+    }
+    return rows;
+}
+
+void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix, int nbins)
+{
+    if (ws_all.empty()) return;
+
+    double mn = ws_all.front().negLogL, mx = mn;
+    for (const auto& w : ws_all) { mn = std::min(mn, w.negLogL); mx = std::max(mx, w.negLogL); }
+    if (mx <= mn) mx = mn + 1.0;
+
+    TCanvas* c = new TCanvas("c_neglog", "Negative Log-Likelihood", 1000, 650);
+    TH1D* h = new TH1D("h_neglog", "Negative Log-Likelihood; -logL; Windows", nbins, mn, mx);
+    for (const auto& w : ws_all) h->Fill(w.negLogL);
+
+    c->SetGrid();
+    h->SetLineWidth(2);
+    h->Draw("HIST");
+    c->Update();
+    c->SaveAs((out_png_prefix + "_neglogL_dist.png").c_str());
+    delete c;
+}
+
+void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix)
+{
+    if (ws_all.empty()) return;
+
+    TCanvas* c = new TCanvas("c_obs_pdf", "Observed vs PDF", 1000, 650);
+    TGraph* g = new TGraph();
+    g->SetTitle("Observed vs PDF PE Counts;N_{obs};N_{PDF}");
+
+    int idx = 0;
+    int minObs = ws_all.front().N_obs, maxObs = minObs;
+    double minExp = ws_all.front().N_exp, maxExp = minExp;
+
+    for (const auto& w : ws_all) {
+        g->SetPoint(idx++, (double)w.N_obs, w.N_exp);
+        minObs = std::min(minObs, w.N_obs);
+        maxObs = std::max(maxObs, w.N_obs);
+        minExp = std::min(minExp, w.N_exp);
+        maxExp = std::max(maxExp, w.N_exp);
+    }
+
+    c->SetGrid();
+    g->SetMarkerStyle(20);
+    g->Draw("AP");
+
+    // y=x reference line
+    double lo = std::min((double)minObs, minExp);
+    double hi = std::max((double)maxObs, maxExp);
+    TLine* diag = new TLine(lo, lo, hi, hi);
+    diag->SetLineStyle(2);
+    diag->Draw("SAME");
+
+    c->Update();
+    c->SaveAs((out_png_prefix + "_obs_pdf_correlation.png").c_str());
+    delete c;
 }
 
 // Make quick side‑by‑side ROOT histograms
@@ -416,6 +511,10 @@ int main(int argc, char **argv) {
 
         cout << "Loaded coinc output: " << coinc.size() << " Entries" << endl;
 
+        auto ws = load_window_stats(z, output_folder);
+
+        cout << "Loaded window stats: " << ws.size() << " Entries" << endl;
+        
         if (pulse.empty() && coinc.empty()) {
             cerr << "[Results_Comp] No data to compare for run " << run << endl;
             continue;
@@ -423,6 +522,8 @@ int main(int argc, char **argv) {
 
         const string out_prefix = output_folder + "graphs/comparisons/" + run;
         plot_comparisons(pulse, coinc, out_prefix, params[run]);
+        plot_neglog_hist(ws, out_prefix, 200);
+        plot_obs_exp_corr(ws, out_prefix);
 	}	
 
 	return 0;

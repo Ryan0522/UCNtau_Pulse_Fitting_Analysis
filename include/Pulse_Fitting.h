@@ -15,6 +15,16 @@ struct PDFParams {
     double loc;
 };
 
+struct WindowStat {
+    int windowIndex;
+    double startTimeUs;
+    double binWidthUs;
+    int nPulsesChosen;
+    double logL;
+    int nObserved; // PE his sum count
+    double nExpected; // PDF fit sum count
+};
+
 extern PDFParams pdfParams_;
 extern std::vector<double> log_fact_table;
 extern std::vector<double> log_lambda_table;
@@ -71,6 +81,7 @@ class Pulse_Fitting {
         const std::vector<std::tuple<double, double, int, double, bool, bool>>& getBackgroundPulses() const { return backgroundPulses_; }
 
         const double getBackgroundRate() const { return peBackgroundRate_; }
+        const std::vector<WindowStat>& getWindowStats() const { return windowStats_; }
 
     private:
         double binWidth_ = 1.0; // primary histogram bin (us)
@@ -99,12 +110,16 @@ class Pulse_Fitting {
         double peBackgroundRate_;
         double eventBackgroundRate_;
 
-        // NEW (August 26, 2025): for tail subtraction
         std::vector<std::pair<double, double>> carryPulses_; // stores (abs_time_us, PE) for pulses whose tails may leak into future windows
         std::vector<double> buildCarryExpected(double winStartUs, double binWidth, const std::vector<double>& xCenters) const;
-        // --- end NEW ---
 
-        // NEW (2025/8/15): capture buffers
+        //NEW (August 29, 2025): window stat
+        std::vector<WindowStat> windowStats_;
+        int curWindowIndex_ = -1;
+        double curWindowStartUs_ = 0.0;
+        double curWindowBinWidth_ = 0.0;
+        // -- end NEW ---
+
         bool capturePlots_ = false;
         int pileupMinPulses_ = 2;
         bool haveFirstSingle_ = false;

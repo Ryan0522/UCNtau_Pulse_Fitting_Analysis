@@ -210,7 +210,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
     // slide over data, window by window, fit pulses per window
     int i = 0;
     int N = static_cast<int>(data_us.size());
-    int windowCount = 0;
+    int windowIndex = 0;
     
     while (i < N) {
         vector<int> hist;
@@ -244,10 +244,12 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         }
 
         std::vector<double> carry = buildCarryExpected(startTime, binWidth, xCenters); // FIX
-
         vector<vector<double>> pdfLookup = generatePDFLookup(xCenters); // shifted PDFs cache
-
         vector<double> fittedPEs, fittedDTs;
+
+        curWindowIndex_ = windowIndex;
+        curWindowStartUs_ = startTime;
+        curWindowBinWidth_ = binWidth;
 
         bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth, &carry);
         if (!success) {
@@ -304,13 +306,13 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             int dt_bins = round_to_index(fittedDTs[k], (int)xCenters.size() - 1);
             dt_bins = std::max(0, std::min(dt_bins, (int)xCenters.size() - 1)); // FIX
             double pulse_time_us = startTime + dt_bins * binWidth + shiftUs_; // +5us correction
-            output.emplace_back(pulse_time_us, fittedPEs[k], windowCount, windowWidth, fittedPEs.size() > 1, binWidth == fineBinWidth_); // store result
+            output.emplace_back(pulse_time_us, fittedPEs[k], windowIndex, windowWidth, fittedPEs.size() > 1, binWidth == fineBinWidth_); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
             carryPulses_.emplace_back(pulse_time_us, fittedPEs[k]); // FIX
         }
         // --- end NEW (August 26, 2025) ---
 
-        windowCount++;
+        windowIndex++;
         i = j;
     }
 }
@@ -573,6 +575,44 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         fittedPEs = finalPEs;
         fittedDTs = finalDTs;
     }
+
+    vector<double> expected(hist.size(), 0.0);
+    if (fixedExpected) {
+        for (size_t j = 0; j < expected.size(); ++j) expected[j] = std::max(0.0, (*fixedExpected)[j]);
+    }
+
+    for (size_t m = 0; m < fittedPEs.size(); ++m) {
+        int dt_idx = (int)std::llround(fittedDTs[m]);
+        dt_idx = std::clamp(dt_idx, 0, (int)pdfLookup.size()-1);
+        const auto& row = pdfLookup[dt_idx];
+        for (size_t j = 0; j < expected.size(); ++j)
+            expected[j] += fittedPEs[m] * row[j];
+    }
+
+    int nObs = 0; for (int c : hist) nObs += c;
+    double nExp = 0.0; for (double v : expected) nExp += v;
+
+    auto poissonLogL = [&](const std::vector<int>& y, const std::vector<double>& mu){
+        double s = 0.0;
+        for (size_t j=0;j<y.size();++j){
+            const int    k = y[j];
+            const double lam = std::max(1e-12, mu[j]);
+            s += k * std::log(lam) - lam - std::lgamma(k + 1.0);
+        }
+        return s;
+    };
+    double logL = poissonLogL(hist, expected);
+
+    WindowStat ws;
+    ws.windowIndex   = curWindowIndex_;
+    ws.startTimeUs   = curWindowStartUs_;
+    ws.binWidthUs    = curWindowBinWidth_;
+    ws.nPulsesChosen = (int)fittedPEs.size();
+    ws.logL          = logL;
+    ws.nObserved     = nObs;
+    ws.nExpected     = nExp;
+
+    windowStats_.push_back(ws);
 
     return true;
 }
