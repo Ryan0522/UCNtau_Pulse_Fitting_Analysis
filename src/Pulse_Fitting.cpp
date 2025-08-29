@@ -355,9 +355,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         }
     }
 
-    if (newPE.empty()) {
-        return false;
-    }
+    if (newPE.empty()) return false;
 
     FitProblem prob;
     prob.observed = &hist;
@@ -369,42 +367,41 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     double dtMin = 0.0, dtMax = (double)xCenters.size() - 1.000001;
 
     std::vector<std::pair<double, double>> seeds;
+    seeds.reserve(newPE.size());
     for (size_t i=0;i<newPE.size();++i) seeds.emplace_back(newDT[i], newPE[i]);
-    std::sort(seeds.begin(), seeds.end());
+    std::sort(seeds.begin(), seeds.end(), [](auto a, auto b){ return a.first < b.first; });
 
-    ModelSelectOptions msopt;
-    msopt.closeBins = 10;
-    msopt.useBIC = false;
+    const int closeBins = 10;
+    auto clusters = cluster_seeds(seeds, closeBins);
+
+    KSelectOptions kopt;
+    kopt.useBIC = false;
+    kopt.maxEval = 200;
+
+    std::vector<double> chosenPEs, chosenDTs;
+    for (const auto& cl : clusters) {
+        if (cl.size() == 1) {
+            chosenPEs.push_back(std::max(1.0, cl[0].second));
+            chosenDTs.push_back(std::clamp(cl[0].first, dtMin, dtMax));
+            continue;
+        }
+        auto [best, kstart] = select_k_for_cluster(prob, cl, peMin, peMax, dtMin, dtMax, kopt);
+        if (best.ok) {
+            chosenPEs.insert(chosenPEs.end(), best.PEs.begin(), best.PEs.end());
+            chosenDTs.insert(chosenDTs.end(), best.DTs.begin(), best.DTs.end());
+        } else {
+            double pe_sum=0, dtw=0;
+            for (auto& p:cl){ pe_sum += p.second; dtw += p.first * p.second; }
+            chosenPEs.push_back(std::max(1.0, pe_sum));
+            chosenDTs.push_back(std::clamp(cl.front().first, dtMin, dtMax));
+        }
+    }
     
-    FitResult r;
-    bool tried_select = (seeds.size() >= 2) && (std::fabs(seeds[1].first - seeds[0].first) <= msopt.closeBins);
-    if (tried_select) r = model_select_1_vs_2(prob, seeds, peMin, peMax, dtMin, dtMax, msopt);
-    if (!r.ok) r = fit_n_pulses_bobyqa(prob, (int)newPE.size(), newPE, newDT, peMin, peMax, dtMin, dtMax, 200);
-    if (!r.ok) return false;
+    auto finalR = fit_global_from_selections(prob, chosenPEs, chosenDTs, peMin, peMax, dtMin, dtMax, 200);
+    if (!finalR.ok || finalR.PEs.empty()) return false;
 
-    auto prune = [&](const std::vector<double>& P, const std::vector<double>& D){
-        std::vector<double> p2, d2;
-        for (size_t i=0;i<P.size();++i) if (P[i] >= 5.0) { p2.push_back(P[i]); d2.push_back(D[i]); }
-        return std::make_pair(std::move(p2), std::move(d2));
-    };
-
-    {
-        auto pr = prune(r.PEs, r.DTs);
-        if (pr.first.empty()) return false;
-        r.PEs.swap(pr.first); r.DTs.swap(pr.second);
-    }
-
-    for (int it=0; it<3; ++it) {
-        auto r2 = fit_n_pulses_bobyqa(prob, (int)r.PEs.size(), r.PEs, r.DTs, peMin, peMax, dtMin, dtMax, 200);
-        if (!r2.ok) break;
-        auto pr2 = prune(r2.PEs, r2.DTs);
-        if ((int)pr2.first.size() == (int)r.PEs.size()) { r = r2; break; } // 收斂
-        if (pr2.first.empty()) return false;
-        r.PEs.swap(pr2.first); r.DTs.swap(pr2.second);
-    }
-
-    fittedPEs = std::move(r.PEs);
-    fittedDTs = std::move(r.DTs);
+    fittedPEs = finalR.PEs;
+    fittedDTs = finalR.DTs;
 
     vector<double> expected(hist.size(), 0.0);
     if (fixedExpected) {

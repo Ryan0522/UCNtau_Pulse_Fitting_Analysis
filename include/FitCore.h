@@ -26,17 +26,27 @@ FitResult fit_n_pulses_bobyqa(
     const std::vector<double>& initDT,
     double peMin, double peMax,
     double dtMin, double dtMax,
-    int maxEval = 300
+    int maxEval = 200
 );
 
-struct ModelSelectOptions {
-    int closeBins = 10;
+struct KSelectOptions {
     bool useBIC = false;
+    int maxEval = 200;
 };
 
-FitResult model_select_1_vs_2(
+std::vector<std::vector<std::pair<double, double>>> cluster_seeds(const std::vector<std::pair<double, double>>& seeds_sorted_by_dt, int closeBins);
+
+std::pair<FitResult,int> select_k_for_cluster(
     const FitProblem& prob,
-    const std::vector<std::pair<double, double>>& seeds_sorted_by_dt,
+    const std::vector<std::pair<double,double>>& cluster,
     double peMin, double peMax, double dtMin, double dtMax,
-    const ModelSelectOptions& opt
-); 
+    const KSelectOptions& opt
+);
+
+FitResult fit_global_from_selections(
+    const FitProblem& prob,
+    const std::vector<double>& initPE,
+    const std::vector<double>& initDT,
+    double peMin, double peMax, double dtMin, double dtMax,
+    int maxEval = 300
+);

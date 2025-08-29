@@ -155,43 +155,63 @@ FitResult fit_n_pulses_bobyqa(
     return out;
 }
 
-static inline double score(double nll, int k, int T, bool useBIC) {
-    if (!useBIC) return nll;
-    return 2.0*nll + k*std::log(std::max(1, T));
+std::vector<std::vector<std::pair<double, double>>> 
+cluster_seeds(const std::vector<std::pair<double,double>>& s, int closeBins) {
+    std::vector<std::vector<std::pair<double,double>>> clusters;
+    if (s.empty()) return clusters;
+    std::vector<std::pair<double,double>> cur; cur.push_back(s[0]);
+    for (size_t i=1;i<s.size();++i){
+        if (std::fabs(s[i].first - s[i-1].first) <= closeBins) cur.push_back(s[i]);
+        else { clusters.push_back(cur); cur.clear(); cur.push_back(s[i]); }
+    }
+    clusters.push_back(cur);
+    return clusters;
 }
 
-FitResult model_select_1_vs_2(
-    const FitProblem& prob,
-    const std::vector<std::pair<double,double>>& seeds, // sorted
-    double peMin, double peMax, double dtMin, double dtMax,
-    const ModelSelectOptions& opt)
+static void init_k_uniform(
+    const std::vector<std::pair<double, double>>& cl, 
+    int k,
+    std::vector<double>& pe0,
+    std::vector<double>& dt0)
 {
-    FitResult best;
-
-    if (seeds.size() < 2) return best;
-    
-    double ddt = std::fabs(seeds[1].first - seeds[0].first);
-    if (ddt > opt.closeBins) return best; // too far
-
-    std::vector<double> pe2 = {seeds[0].second, seeds[1].second};
-    std::vector<double> dt2 = {seeds[0].first,  seeds[1].first};
-
-    double pe1 = pe2[0] + pe2[1];
-    double dt1 = seeds[0].first;
-
-    auto r1 = fit_n_pulses_bobyqa(prob, 1, {pe1}, {dt1}, peMin, peMax, dtMin, dtMax, 200);
-    auto r2 = fit_n_pulses_bobyqa(prob, 2, pe2, dt2, peMin, peMax, dtMin, dtMax, 200);
-
-    int T = prob.nTime;
-    if (r1.ok) {
-        double s = score(r1.nll, 2, T, opt.useBIC);
-        best = r1; best.nll = s;
+    double PE_sum = 0, dt_min = cl.front().first, dt_max = cl.back().first;
+    for (auto& p : cl) {
+        PE_sum += p.second;
+        dt_min = std::min(dt_min, p.first);
+        dt_max = std::max(dt_max, p.first);
     }
-    if (r2.ok) {
-        double s = score(r2.nll, 4, T, opt.useBIC);
-        if (!best.ok || s < best.nll) { best = r2; best.nll = s; }
-    }
+    pe0.assign(k, std::max(1.0, PE_sum / std::max(1, k)));
+    dt0.resize(k);
+    if (dt_max <= dt_min) { for (int i=0;i<k;++i) dt0[i] = dt_min; }
+    else { for (int i=0;i<k;++i) dt0[i] = dt_min + (dt_max - dt_min) * (i + 0.5) / k; }
+}
 
-    best.ok = (r1.ok || r2.ok);
-    return best;
+std::pair<FitResult,int> select_k_for_cluster(
+    const FitProblem& prob, const std::vector<std::pair<double,double>>& cl,
+    double peMin, double peMax, double dtMin, double dtMax,
+    const KSelectOptions& opt)
+{
+    FitResult best; int best_k = 0;
+    const int m = (int)cl.size();
+    for (int k=1;k<=m;++k){
+        std::vector<double> pe0, dt0; init_k_uniform(cl, k, pe0, dt0);
+        FitResult r = fit_n_pulses_bobyqa(prob, k, pe0, dt0, peMin, peMax, dtMin, dtMax, opt.maxEval);
+        if (!r.ok) continue;
+        double s = opt.useBIC ? (2.0*r.nll + (2*k)*std::log(std::max(1, prob.nTime))) : r.nll;
+        double s_best = best.ok ? (opt.useBIC ? (2.0*best.nll + (2*best_k)*std::log(std::max(1, prob.nTime))) : best.nll) : std::numeric_limits<double>::infinity();
+        if (!best.ok || s < s_best) { best=r; best_k=k; }
+    }
+    return {best, best_k};
+}
+
+FitResult fit_global_from_selections(
+    const FitProblem& prob,
+    const std::vector<double>& initPE,
+    const std::vector<double>& initDT,
+    double peMin, double peMax, double dtMin, double dtMax,
+    int maxEval)
+{
+    const int n = (int)initPE.size();
+    if (n==0) return {};
+    return fit_n_pulses_bobyqa(prob, n, initPE, initDT, peMin, peMax, dtMin, dtMax, maxEval);
 }
