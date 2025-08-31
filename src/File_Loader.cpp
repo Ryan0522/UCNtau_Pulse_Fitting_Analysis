@@ -215,7 +215,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 	c.guard_bin = cfg.value("guard_bin", 1);
 	
 	c.use_coinc = cfg.value("use_coinc", false);
-	c.coinc_win = cfg.value("coinc_win", 100e-9);
+	c.coinc_win_us = cfg.value("coinc_win_us", 0.1);
 
 	// load runinfo JSON
     {

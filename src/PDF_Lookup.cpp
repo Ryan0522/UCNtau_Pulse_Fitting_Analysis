@@ -1,6 +1,7 @@
 #include "PDF_Lookup.h"
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 #include <stdexcept>
 #include <cmath>
 #include <algorithm>
@@ -11,7 +12,7 @@ using std::string;
 using std::vector;
 
 PDF_Lookup::PDF_Lookup(double coarse_bw, double fine_bw, const std::string& csv_path)
-    : coarseBinWidth_(coarse_bw), fineBinWidth_(fine_bw), csv_path_(csv_path)
+    : coarseBinWidth_(coarse_bw), fineBinWidth_(fine_bw), csv_path_(csv_path), dt_csv_us_(0.0)
 {
     if (!csv_path.empty()) {
         if (!load_csv(csv_path)) {
@@ -47,24 +48,38 @@ bool PDF_Lookup::load_csv(const std::string& path) {
     if (cols[0].size() < 100) return false;
 
     const vector<double>& t = cols[0];
-    double dt001 = (t.size() > 1) ? (t[1] - t[0]) : 0.25;
-    if (std::abs(dt001 - 0.25) > 1e-9) throw std::runtime_error("CSV time step not 0.25 us.");
+    dt_csv_us_ = (t.size() > 1) ? (t[1] - t[0]) : 0.01;
+    if (dt_csv_us_ <= 0.0) throw std::runtime_error("CSV has non-positive dt.");
+    if (fineBinWidth_ <= 0.0 || coarseBinWidth_ <= 0.0)
+        throw std::runtime_error("PDF_Lookup: fine/coarse bin widths must be > 0.");
+
+    seg_.clear();
+    cache_.clear();
 
     for (size_t c = 1; c < C; ++c) {
         int seg_id = parse_segment_name(headers[c]);
-        vector<double> p001 = cols[c];
+        const vector<double>& p_src = cols[c];
 
         BasePDF b;
         b.binWidth = coarseBinWidth_;
         b.fineBinWidth = fineBinWidth_;
 
-        b.p_f = p001;
-        b.p = p001;
-        // downsample(p001, dt001, b.p_f, b.fineBinWidth);
-        // normalize_series(b.p_f, b.fineBinWidth);
+        if (!approx_int_multiple(fineBinWidth_, dt_csv_us_)) {
+            throw std::runtime_error("fineBinWidth_us must be an integer multiple of CSV dt.");
+        }
 
-        // downsample(b.p_f, b.fineBinWidth, b.p, b.binWidth);
-        // normalize_series(b.p, b.binWidth);
+        downsample(p_src, dt_csv_us_, b.p_f, fineBinWidth_);
+        normalize_series(b.p_f, fineBinWidth);
+
+        if (!approx_int_multiple(coarseBinWidth_, b.fineBinWidth)) {
+            if (!approx_int_multiple(coarseBinWidth_, dt_csv_us_)) {
+                throw std::runtime_error("coarseBinWidth_us must be an integer multiple of CSV dt or fineBinWidth.");
+            }
+            downsample(p_src, dt_csv_us_, b.p, coarseBinWidth_);
+        } else {
+            downsample(b.p_f, b.fineBinWidth, b.p, coarseBinWidth_);
+        }
+        normalize_series(b.p, b.binWidth);
 
         seg_[seg_id] = std::move(b);
     }
@@ -83,7 +98,8 @@ int PDF_Lookup::parse_segment_name(const std::string& header) {
 }
 
 void PDF_Lookup::normalize_series(std::vector<double>& v, double dt) {
-    double area = 0.0; for (double x : v) area += x * dt;
+    double area = 0.0; 
+    for (double x : v) area += x * dt;
     if (area > 0.0) {
         double inv = 1.0 / area;
         for (double& x : v) x *= inv;

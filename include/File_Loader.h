@@ -47,7 +47,7 @@ typedef struct
     int guard_bin; // default 1 (exclude extra peaks near the first pulse)
 
     bool use_coinc;
-    double coinc_win;
+    double coinc_win_us;
 } Config;
 
 using EventList = std::vector<event>;

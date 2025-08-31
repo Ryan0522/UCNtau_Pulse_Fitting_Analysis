@@ -641,7 +641,12 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        const string out_prefix = output_folder + "graphs/comparisons/" + run;
+        string out_prefix;
+        if (cfg.use_coinc) {
+            out_prefix = output_folder + "graphs/comp_coinc/" + run;
+        } else {
+            out_prefix = output_folder + "graphs/comp_no_coinc/" + run;
+        }
         plot_comparisons(pulse, coinc, out_prefix, params[run]);
         plot_neglog_hist(ws, out_prefix, 200);
         plot_obs_exp_corr(ws, out_prefix);

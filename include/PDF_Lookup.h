@@ -5,15 +5,15 @@
 #include <vector>
 #include <unordered_map>
 
+struct BasePDF {
+    double binWidth = 1; // in microseconds (coarse)
+    double fineBinWidth = 1; // in microseconds (fine)
+    std::vector<double> p; // pdf for binWidth (0 us offset)
+    std::vector<double> p_f; // pdf for fine bin (0 us offset)
+};
+
 class PDF_Lookup {
     public:
-        struct BasePDF {
-            double binWidth = 1; // in microseconds (coarse)
-            double fineBinWidth = 1; // in microseconds (fine)
-            std::vector<double> p; // pdf for binWidth (0 us offset)
-            std::vector<double> p_f; // pdf for fine bin (0 us offset)
-        };
-
         PDF_Lookup(double coarse_bw, double fine_bw, const std::string& csv_path);
 
         bool load_csv(const std::string& path);
@@ -24,10 +24,13 @@ class PDF_Lookup {
         }
 
     private:
+        double dt_csv_us_;
         double coarseBinWidth_;
         double fineBinWidth_;
         std::string csv_path_;
+
         std::unordered_map<int, BasePDF> seg_; // seg_id -> bases
+        std::map<std::pair<int, double>, std::vector<double>> cache_;
         
         static int parse_segment_name(const std::string& header); // "Segment_12" -> 12
         static void normalize_series(std::vector<double>& v, double dt);

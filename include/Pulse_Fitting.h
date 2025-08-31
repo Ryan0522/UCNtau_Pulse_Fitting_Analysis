@@ -22,10 +22,10 @@ class Pulse_Fitting {
     public:
         Pulse_Fitting(const EventList& events);
         void setBinWidths(double coarse_us, double fine_us) {
-            binWidth_ = coarse_us > 0 ? coarse_us : binWidth_; 
-            fineBinWidth_ = fine_us > 0 ? fine_us : fineBinWidth_; 
+            binWidth_us_ = coarse_us > 0 ? coarse_us : binWidth_us_; 
+            fineBinWidth_us_ = fine_us > 0 ? fine_us : fineBinWidth_us_; 
         }
-        void setMinGapUs(double mg_us) { if (mg_us >= 0) minGap_ = mg_us; }
+        void setMinGapUs(double mg_us) { if (mg_us >= 0) minGap_us_ = mg_us; }
         void setSegmentId(int seg) { segmentId_ = seg; }
         void setConfigKnobs(double shift_us, double seed_pe_default, double gradient_threshold, int guard_bin) {
             shiftUs_ = shift_us; seedPE_ = seed_pe_default; gradThr_ = gradient_threshold; guardBin_ = std::max(0, guard_bin);
@@ -38,10 +38,10 @@ class Pulse_Fitting {
             setConfigKnobs(c.shift_us, c.seed_pe_default, c.gradient_threshold, c.guard_bin);
             pileupMinPulses_ = c.pileup_min_pulses;
             capturePlots_ = c.plot_fits;
-            preBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, binWidth_));
-            finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_));
+            preBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, binWidth_us_));
+            finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_us_));
             use_coinc_ = c.use_coinc;
-            coinc_win_ = c.coinc_win;
+            coinc_win_us_ = c.coinc_win_us;
         }
 
         double shift_us() const { return shiftUs_; }
@@ -74,15 +74,15 @@ class Pulse_Fitting {
     private:
         const EventList events_;
 
-        double binWidth_ = 1.0; // primary histogram bin (us)
-        double fineBinWidth_ = 0.25; // fallback giner bining (us)
+        double binWidth_us_ = 1.0; // primary histogram bin (us)
+        double fineBinWidth_us_ = 0.25; // fallback giner bining (us)
 
-        double minGap_ = 0.0; // max inter-hit gap before closing a window (us)
+        double minGap_us_ = 0.0; // max inter-hit gap before closing a window (us)
         double startAfterUs_ = 0; // signal start time (us)
         double stopAfterUs_ = 1e12; // signal stop time (us)
         double backgroundAfterUs_ = 0; // bg start (us), bg end = start + 60s
         int segmentId_ = 12; // default
-        std::vector<double> peTimes_; // all PE times (us)
+        std::vector<double> peTimes_us_; // all PE times (us)
 
         // --- NEW configurable knobs (defaults if config omits them)
         double shiftUs_ = 5.0;
@@ -108,7 +108,7 @@ class Pulse_Fitting {
         std::vector<WindowStat> windowStats_;
         int curWindowIndex_ = -1;
         double curWindowStartUs_ = 0.0;
-        double curWindowBinWidth_ = 0.0;
+        double curWindowBinWidth_us_ = 0.0;
         // -- end NEW ---
 
         bool capturePlots_ = false;
@@ -125,7 +125,7 @@ class Pulse_Fitting {
         std::vector<std::vector<double>> pile_components_;
 
         bool use_coinc_;
-        double coinc_win_;
+        double coinc_win_us_;
 
         // === HELPER METHODS === //
 

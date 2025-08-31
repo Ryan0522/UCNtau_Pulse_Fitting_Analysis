@@ -38,7 +38,7 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
 
 	os << "use_coinc          = " << c.use_coinc << "\n";
-	os << "coinc_win          = " << c.coinc_win << "\n";
+	os << "coinc_win_us       = " << c.coinc_win_us << "\n";
 
     return os;
 }

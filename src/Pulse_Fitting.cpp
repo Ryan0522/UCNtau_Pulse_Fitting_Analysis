@@ -18,7 +18,7 @@ static inline int round_to_index(double x, int max_index_inclusive) {
     return static_cast<int>(idx);
 }
 
-Pulse_Fitting::Pulse_Fitting(const EventList& events) : events_(events) { extractTimes(events); } // copy event.realtime to peTimes_ (us)
+Pulse_Fitting::Pulse_Fitting(const EventList& events) : events_(events) { extractTimes(events); } // copy event.realtime to peTimes_us_ (us)
 
 void Pulse_Fitting::setWindow(double start_us, double stop_us) {
     // set signal window in absolute microseconds
@@ -32,13 +32,13 @@ void Pulse_Fitting::setBackgroundWindow(double start_us) {
 
 void Pulse_Fitting::analyze() { // Assume 60s is the length for both the counting and the background windows
     cout << "Segment: " << segmentId_ << endl;
-    cout << "Event size: " << peTimes_.size() << endl; // total PE hits loaded
+    cout << "Event size: " << peTimes_us_.size() << endl; // total PE hits loaded
 
-    vector<double> signalTimes = applyTimeWindow(peTimes_, startAfterUs_, stopAfterUs_);
+    vector<double> signalTimes = applyTimeWindow(peTimes_us_, startAfterUs_, stopAfterUs_);
     vector<double> backgroundTimes;
 
     if (backgroundAfterUs_ > 0)
-        backgroundTimes = applyTimeWindow(peTimes_, backgroundAfterUs_, backgroundAfterUs_ + 60e6);
+        backgroundTimes = applyTimeWindow(peTimes_us_, backgroundAfterUs_, backgroundAfterUs_ + 60e6);
 
     cout << "SignalTime PE Event size: " << signalTimes.size() << "  |  ";
     cout << "Background PE Event size: " << backgroundTimes.size() << endl;
@@ -68,16 +68,16 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     eventBackgroundRate_ = backgroundPulses_.size() / 60.0;
 }
 
-vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWidth, const vector<double>& xCenters) const
+vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWidth_us, const vector<double>& xCenters) const
 {
     const int L = (int)xCenters.size();
     vector<double> carry(L, 0.0);
     if (L == 0) return carry;
 
-    const vector<double> base = get_full_pdf(segmentId_, binWidth);
+    const vector<double> base = get_full_pdf(segmentId_, binWidth_us);
     if (base.empty()) return carry;
     const int fullBins = (int)base.size();
-    const double pdf_len_us = fullBins * binWidth;
+    const double pdf_len_us = fullBins * binWidth_us;
 
     for (const auto& pr : carryPulses_) {
         const double t0_us = pr.first; // absolute time (us)
@@ -87,7 +87,7 @@ vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWi
         if (age < 0.0) continue; // skip pulses in current window (if any) (this is for safety)
         if (age >= pdf_len_us) continue; // the entire PDF is to the left of current window
 
-        const int dx = (int)std::floor(age / binWidth);
+        const int dx = (int)std::floor(age / binWidth_us);
         const int copy_len = std::min(L, fullBins - dx);
         for (int j = 0; j < copy_len; ++j) {
             carry[j] += PE * base[j + dx];
@@ -103,7 +103,7 @@ void Pulse_Fitting::extractTimes(const EventList& events) {
     for (const auto& e : events) {
         times.push_back(e.realtime * 1e6);
     }
-    peTimes_ = move(times);
+    peTimes_us_ = move(times);
 }
 
 vector<double> Pulse_Fitting::applyTimeWindow(const vector<double>& times, double start, double end) {
@@ -117,7 +117,7 @@ vector<double> Pulse_Fitting::applyTimeWindow(const vector<double>& times, doubl
 }
 
 tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<double>& times, int startIdx) {
-    // grow a window starting at 'startIdx' until an inter-hit gap > minGap_
+    // grow a window starting at 'startIdx' until an inter-hit gap > minGap_us_
     int N = static_cast<int>(times.size());
     if (startIdx >= N - 1) {
         return {0.0, startIdx + 1, 0.0, 0.0};
@@ -130,7 +130,7 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
         bool armed = false;
         while (j < N) {
             double dt_seed = times[j] - times[startIdx];
-            if (dt_seed > coinc_win_) break;
+            if (dt_seed > coinc_win_us_) break;
             if (events_[j].channel != events_[startIdx].channel) {
                 armed = true;
                 ++j;
@@ -145,21 +145,21 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
         int last = j -  1;
         while (j < N) {
             double dt_step = times[j] - times[last];
-            if (dt_step >= minGap_) break;
+            if (dt_step >= minGap_us_) break;
             last = j;
             ++j;
         }
     } else {
-        while (j < N && (times[j] - times[j - 1]) <= minGap_) {
+        while (j < N && (times[j] - times[j - 1]) <= minGap_us_) {
             ++j;
         }
     }
 
     // previously: double end = times[j - 1]; // August 6th 2025
-    // pad by minGap_ so the histogram includes explicit zeros after the last hit // August 10th 2025
+    // pad by minGap_us_ so the histogram includes explicit zeros after the last hit // August 10th 2025
     const double t_last = times[j - 1];
     const double nextHit = (j < N ? times[j] : numeric_limits<double>::infinity());
-    const double end_pad = t_last + minGap_;
+    const double end_pad = t_last + minGap_us_;
     const double cap_by_next = std::isfinite(nextHit) ? nextafter(nextHit, -numeric_limits<double>::infinity()) : end_pad;
     const double end = std::min(end_pad, cap_by_next);
 
@@ -167,39 +167,39 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
     return make_tuple(windowWidth, j, start, end);
 }
 
-bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double binWidth,
+bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double binWidth_us,
                                   double& windowWidth, int& j, double& startTime, double& endTime,
                                   vector<int>& hist, vector<double>& xCenters) 
 {
-    // compute [startTime, endTime] window and bin hits into 'hist' with given binWidth
+    // compute [startTime, endTime] window and bin hits into 'hist' with given binWidth_us
     tie(windowWidth, j, startTime, endTime) = movingWindow(times, i);
-    if (windowWidth < binWidth) return false;
+    if (windowWidth < binWidth_us) return false;
 
-    int nBins = static_cast<int>(ceil(windowWidth / binWidth));
+    int nBins = static_cast<int>(ceil(windowWidth / binWidth_us));
     if (nBins < 1) return false;
 
     xCenters.resize(nBins);
     hist.assign(nBins, 0);
     for (int b = 0; b < nBins; ++b) {
-        xCenters[b] = b * binWidth;
+        xCenters[b] = b * binWidth_us;
     }
 
     for (int k = i; k < j; ++k) { // fill counts per bin relative to startTime
         double t = times[k] - startTime;
-        int bin = static_cast<int>(t / binWidth);
+        int bin = static_cast<int>(t / binWidth_us);
         if (bin >= 0 && bin < nBins) {
             hist[bin]++;
         }
     }
 
     // --- NEW: prepend 5 us worth of empty bins so fitter origin is at -5 us (due to PDF generate algorithm in Pulse_Tail.cpp) ---
-    int pre_bins = (binWidth == binWidth_) ? preBins_ : finePreBins_;
+    int pre_bins = (binWidth_us == binWidth_us_) ? preBins_ : finePreBins_;
     if (pre_bins > 0) {
         hist.insert(hist.begin(), pre_bins, 0);
 
-        // rebuild xCenters to stay aligned (0, 1*binWidth, ...)
+        // rebuild xCenters to stay aligned (0, 1*binWidth_us, ...)
         vector<double>newX(hist.size());
-        for (size_t b = 0; b < newX.size(); ++b) newX[b] = b * binWidth;
+        for (size_t b = 0; b < newX.size(); ++b) newX[b] = b * binWidth_us;
         xCenters.swap(newX);
     }
     // --- end NEW (August 20, 2025) ---
@@ -220,23 +220,23 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         vector<double> xCenters;
         double windowWidth, startTime, endTime;
         int j;
-        double binWidth = binWidth_;
+        double binWidth_us = binWidth_us_;
 
-        if (!makeHistogram(data_us, i, binWidth, windowWidth, j, startTime, endTime, hist, xCenters)) {
+        if (!makeHistogram(data_us, i, binWidth_us, windowWidth, j, startTime, endTime, hist, xCenters)) {
             i = j;
             continue;
         }
 
         if (xCenters.size() < 2) {
-            binWidth = fineBinWidth_;
-            if (!makeHistogram(data_us, i, binWidth, windowWidth, j, startTime, endTime, hist, xCenters)) {
+            binWidth_us = fineBinWidth_us_;
+            if (!makeHistogram(data_us, i, binWidth_us, windowWidth, j, startTime, endTime, hist, xCenters)) {
                 i = j;
                 continue;
             }
         }
 
-        const vector<double> base = get_full_pdf(segmentId_, binWidth);
-        const double pdf_len_us = base.empty() ? 0.0 : base.size() * binWidth;
+        const vector<double> base = get_full_pdf(segmentId_, binWidth_us);
+        const double pdf_len_us = base.empty() ? 0.0 : base.size() * binWidth_us;
 
         if (pdf_len_us > 0.0) {
             carryPulses_.erase(
@@ -246,15 +246,15 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             );
         }
 
-        std::vector<double> carry = buildCarryExpected(startTime, binWidth, xCenters); // FIX
+        std::vector<double> carry = buildCarryExpected(startTime, binWidth_us, xCenters); // FIX
         vector<vector<double>> pdfLookup = generatePDFLookup(xCenters); // shifted PDFs cache
         vector<double> fittedPEs, fittedDTs;
 
         curWindowIndex_ = windowIndex;
         curWindowStartUs_ = startTime;
-        curWindowBinWidth_ = binWidth;
+        curWindowBinWidth_us_ = binWidth_us;
 
-        bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth, &carry);
+        bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth_us, &carry);
         if (!success) {
             i = j;
             continue;
@@ -308,8 +308,8 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
             int dt_bins = round_to_index(fittedDTs[k], (int)xCenters.size() - 1);
             dt_bins = std::max(0, std::min(dt_bins, (int)xCenters.size() - 1)); // FIX
-            double pulse_time_us = startTime + dt_bins * binWidth + shiftUs_; // +5us correction
-            output.emplace_back(pulse_time_us, fittedPEs[k], windowIndex, windowWidth, fittedPEs.size() > 1, binWidth == fineBinWidth_); // store result
+            double pulse_time_us = startTime + dt_bins * binWidth_us + shiftUs_; // +5us correction
+            output.emplace_back(pulse_time_us, fittedPEs[k], windowIndex, windowWidth, fittedPEs.size() > 1, binWidth_us == fineBinWidth_us_); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
             carryPulses_.emplace_back(pulse_time_us, fittedPEs[k]); // FIX
         }
@@ -324,15 +324,15 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xCenters) {
     if (xCenters.size() < 2) return {};
     const int length = static_cast<int>(xCenters.size());
-    const double binWidth = xCenters[1] - xCenters[0];
+    const double binWidth_us = xCenters[1] - xCenters[0];
 
-    auto key = std::make_pair(length, std::round(binWidth * 1e6) / 1e6);
+    auto key = std::make_pair(length, std::round(binWidth_us * 1e6) / 1e6);
     auto it = pdfCache_.find(key);
     if (it != pdfCache_.end()) return it->second;
 
     vector<vector<double>> lookup(length, vector<double>(length, 0.0));
     for (int dx = 0; dx < length; ++dx) {
-        lookup[dx] = shifted_pdf(segmentId_, binWidth, dx, length);
+        lookup[dx] = shifted_pdf(segmentId_, binWidth_us, dx, length);
     }
 
     pdfCache_[key] = lookup;
@@ -367,10 +367,10 @@ vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thr
 bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCenters,
                               const vector<vector<double>>& pdfLookup,
                               vector<double>& fittedPEs, vector<double>& fittedDTs,
-                              const double binWidth,
+                              const double binWidth_us,
                               const vector<double>* fixedExpected) 
 {
-    const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth));
+    const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth_us));
     vector<int> peaks = findGradientPeaks(hist, gradThr_);
 
     vector<double> peGuess = { seedPE_ };
@@ -409,7 +409,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     // --- NEW: background rate configuration ---
     prob.bg_rate_hz = peBackgroundRate_;
-    prob.bin_width_sec = binWidth * 1e-6;
+    prob.bin_width_sec = binWidth_us * 1e-6;
     prob.fit_bg = fitting_bg_;
     // --- end NEW (August 31, 2025) ---
 
@@ -504,7 +504,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     WindowStat ws;
     ws.windowIndex   = curWindowIndex_;
     ws.startTimeUs   = curWindowStartUs_;
-    ws.binWidthUs    = curWindowBinWidth_;
+    ws.binWidthUs    = curWindowBinWidth_us_;
     ws.nPulsesChosen = (int)fittedPEs.size();
     ws.logL          = logL;
     ws.nObserved     = nObs;
