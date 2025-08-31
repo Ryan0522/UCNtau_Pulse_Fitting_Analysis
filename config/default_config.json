@@ -9,7 +9,7 @@
     
     "binWidth": 0.25,
     "fineBinWidth": 0.25,
-    "minGap": 40,
+    "minGap": 10,
     "pdf_csv_path": "./config/all_tail_response.csv",
 
     "shift_us": 5.0,
@@ -18,5 +18,8 @@
     "guard_bin": 1,
 
     "plot_fits": false,
-    "pileup_min_pulses": 2
+    "pileup_min_pulses": 2,
+
+    "use_coinc": false,
+    "coinc_win": 100e-9
 }

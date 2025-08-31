@@ -18,7 +18,7 @@ static inline int round_to_index(double x, int max_index_inclusive) {
     return static_cast<int>(idx);
 }
 
-Pulse_Fitting::Pulse_Fitting(const EventList& events) {extractTimes(events);} // copy event.realtime to peTimes_ (us)
+Pulse_Fitting::Pulse_Fitting(const EventList& events) : events_(events) { extractTimes(events); } // copy event.realtime to peTimes_ (us)
 
 void Pulse_Fitting::setWindow(double start_us, double stop_us) {
     // set signal window in absolute microseconds
@@ -119,11 +119,40 @@ vector<double> Pulse_Fitting::applyTimeWindow(const vector<double>& times, doubl
 tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<double>& times, int startIdx) {
     // grow a window starting at 'startIdx' until an inter-hit gap > minGap_
     int N = static_cast<int>(times.size());
+    if (startIdx >= N - 1) {
+        return {0.0, startIdx + 1, 0.0, 0.0};
+    }
+
     double start = times[startIdx];
     int j = startIdx + 1;
 
-    while (j < N && (times[j] - times[j - 1]) <= minGap_) {
-        ++j;
+    if (use_coinc_) {
+        bool armed = false;
+        while (j < N) {
+            double dt_seed = times[j] - times[startIdx];
+            if (dt_seed > coinc_win_) break;
+            if (events_[j].channel != events_[startIdx].channel) {
+                armed = true;
+                ++j;
+                break;
+            }
+            ++j;
+        }
+        if (!armed) {
+            const double t = times[startIdx];
+            return {0.0, startIdx + 1, t, t};
+        }
+        int last = j -  1;
+        while (j < N) {
+            double dt_step = times[j] - times[last];
+            if (dt_step >= minGap_) break;
+            last = j;
+            ++j;
+        }
+    } else {
+        while (j < N && (times[j] - times[j - 1]) <= minGap_) {
+            ++j;
+        }
     }
 
     // previously: double end = times[j - 1]; // August 6th 2025

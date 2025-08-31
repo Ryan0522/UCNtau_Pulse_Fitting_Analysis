@@ -1,7 +1,7 @@
 #ifndef FILE_LOADER_H
 #define FILE_LOADER_H
 
-#include <list>
+#include <vector>
 #include <string>
 #include <set>
 #include <json.hpp>
@@ -45,9 +45,12 @@ typedef struct
     double seed_pe_default; // default 20.0 (default PE for the first pulse in each valid window)
     double gradient_threshold; // default 2.0 (findGradientPeaks threshold factor)
     int guard_bin; // default 1 (exclude extra peaks near the first pulse)
+
+    bool use_coinc;
+    double coinc_win;
 } Config;
 
-using EventList = std::list<event>;
+using EventList = std::vector<event>;
 
 std::string ensureTrailingSlash(const std::string& folder);
 

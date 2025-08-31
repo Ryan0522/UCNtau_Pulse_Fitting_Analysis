@@ -37,6 +37,9 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "plot_fits          = " << c.plot_fits << "\n";
     os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
 
+	os << "use_coinc          = " << c.use_coinc << "\n";
+	os << "coinc_win          = " << c.coinc_win << "\n";
+
     return os;
 }
 

@@ -40,6 +40,8 @@ class Pulse_Fitting {
             capturePlots_ = c.plot_fits;
             preBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, binWidth_));
             finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_));
+            use_coinc_ = c.use_coinc;
+            coinc_win_ = c.coinc_win;
         }
 
         double shift_us() const { return shiftUs_; }
@@ -70,6 +72,8 @@ class Pulse_Fitting {
         const std::vector<WindowStat>& getWindowStats() const { return windowStats_; }
 
     private:
+        const EventList events_;
+
         double binWidth_ = 1.0; // primary histogram bin (us)
         double fineBinWidth_ = 0.25; // fallback giner bining (us)
 
@@ -119,6 +123,9 @@ class Pulse_Fitting {
         std::vector<int> pile_hist_;
         std::vector<double> pile_x_, pile_total_;
         std::vector<std::vector<double>> pile_components_;
+
+        bool use_coinc_;
+        double coinc_win_;
 
         // === HELPER METHODS === //
 

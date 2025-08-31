@@ -213,6 +213,9 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 	c.seed_pe_default = cfg.value("seed_pe_default", 20.0);
 	c.gradient_threshold = cfg.value("gradient_threshold", 2.0);
 	c.guard_bin = cfg.value("guard_bin", 1);
+	
+	c.use_coinc = cfg.value("use_coinc", false);
+	c.coinc_win = cfg.value("coinc_win", 100e-9);
 
 	// load runinfo JSON
     {
