@@ -43,13 +43,28 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     cout << "SignalTime PE Event size: " << signalTimes.size() << "  |  ";
     cout << "Background PE Event size: " << backgroundTimes.size() << endl;
     
+    const double bg_duration_sec = 60.0;
+    peBackgroundRate_ = std::max(0.0, backgroundTimes.size() / bg_duration_sec);
+    fitting_bg_ = false;
+
+    const int MAX_ITERS = 3;
+    for (int it = 0; it < MAX_ITERS; ++it) {
+        backgroundPulses_.clear();
+        fitRegion(backgroundTimes, backgroundPulses_);
+
+        double sumPE = 0.0;
+        for (const auto& pr : backgroundPulses_) sumPE += std::get<1>(pr);
+        double rate_hat = (backgroundTimes.size() - sumPE) / bg_duration_sec;
+        peBackgroundRate_ = std::max(0.0, rate_hat);
+
+        fitting_bg_ = true;
+    }
+    
     fitRegion(signalTimes, signalPulses_); // parse windows, fit pulses
-    fitRegion(backgroundTimes, backgroundPulses_); // ditto for background
 
     cout << "SignalTime Neutron Event count: " << signalPulses_.size() << "  |  ";
     cout << "Background Neutron Event count: " << backgroundPulses_.size() << "\n" << endl;
 
-    peBackgroundRate_ = backgroundTimes.size() / 60.0;
     eventBackgroundRate_ = backgroundPulses_.size() / 60.0;
 }
 
@@ -362,6 +377,12 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     prob.pdfLookup = &pdfLookup;
     prob.fixedExpected = fixedExpected;
     prob.nTime = (int)hist.size();
+
+    // --- NEW: background rate configuration ---
+    prob.bg_rate_hz = peBackgroundRate_;
+    prob.bin_width_sec = binWidth * 1e-6;
+    prob.fit_bg = fitting_bg_;
+    // --- end NEW (August 31, 2025) ---
 
     double peMin = 1.0, peMax = 300.0;
     double dtMin = 0.0, dtMax = (double)xCenters.size() - 1.000001;

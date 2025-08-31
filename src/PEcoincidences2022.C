@@ -279,7 +279,7 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
 	double start = (double)params["fill_time"] +
                (double)params["hold_time"] +
                (double)params["clean_time"] + 40;
-	double stop  = start + 60;
+	double stop  = start + 60 + 50 + 60; // end of bg
 	cout << "Start, End time for coincidences: " <<start << ", " << stop << endl;
 
 	string part1 = "../UCNtau_2022_raw_data/processed_output_";

@@ -7,6 +7,9 @@ struct FitProblem {
     const std::vector<std::vector<double>>* pdfLookup;
     const std::vector<double>* fixedExpected;
     int nTime;
+    double bg_rate_hz = 0.0;
+    double bin_width_sec = 0.0;
+    bool fit_bg = false;
 };
 
 struct FitResult {

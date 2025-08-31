@@ -73,6 +73,12 @@ static double negLogL_core(const std::vector<double>& params,
         for (int i = 0; i < T; ++i) {
             double v = (i < (int)fix.size() ? fix[i] : 0.0);
             expv[i] = std::isfinite(v) && v >= 0 ? v : 0.0;
+            if (prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0 && prob.fit_bg) {
+                const double b = prob.bg_rate_hz * prob.bin_width_sec;
+                if (std::isfinite(b) && b > 0.0) {
+                    expv[i] += b;
+                }
+            }
         }
     }
 

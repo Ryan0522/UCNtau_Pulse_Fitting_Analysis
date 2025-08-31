@@ -95,6 +95,7 @@ class Pulse_Fitting {
         std::vector<std::tuple<double, double, int, double, bool, bool>> backgroundPulses_;
         double peBackgroundRate_;
         double eventBackgroundRate_;
+        bool fitting_bg_;
 
         std::vector<std::pair<double, double>> carryPulses_; // stores (abs_time_us, PE) for pulses whose tails may leak into future windows
         std::vector<double> buildCarryExpected(double winStartUs, double binWidth, const std::vector<double>& xCenters) const;
