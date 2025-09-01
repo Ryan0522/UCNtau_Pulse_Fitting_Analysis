@@ -12,6 +12,9 @@ Pulse_Analysis
 Pulse_Tail
 Runtime_Analysis
 Plot_PDFs
+Results_Comp
+PEcoincidences2022
+
 *.csv
 
 # Slurm/SBatch
