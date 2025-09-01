@@ -54,7 +54,6 @@ bool PDF_Lookup::load_csv(const std::string& path) {
         throw std::runtime_error("PDF_Lookup: fine/coarse bin widths must be > 0.");
 
     seg_.clear();
-    cache_.clear();
 
     for (size_t c = 1; c < C; ++c) {
         int seg_id = parse_segment_name(headers[c]);
@@ -69,7 +68,7 @@ bool PDF_Lookup::load_csv(const std::string& path) {
         }
 
         downsample(p_src, dt_csv_us_, b.p_f, fineBinWidth_);
-        normalize_series(b.p_f, fineBinWidth);
+        normalize_series(b.p_f, fineBinWidth_);
 
         if (!approx_int_multiple(coarseBinWidth_, b.fineBinWidth)) {
             if (!approx_int_multiple(coarseBinWidth_, dt_csv_us_)) {

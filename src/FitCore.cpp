@@ -98,7 +98,7 @@ static double negLogL_core(const std::vector<double>& params,
 
         for (int t = 0; t < T; ++t) {
             double row = (1.0 - a) * r0[t] + a * r1[t];
-            double add = PE * row;
+            double add = PE * row * prob.bin_width_sec;
             if (!std::isfinite(add) || add < 0) return 1e300;
             expv[t] += add;
         }

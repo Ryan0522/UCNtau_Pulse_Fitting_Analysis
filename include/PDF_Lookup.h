@@ -17,12 +17,11 @@ class PDF_Lookup {
         PDF_Lookup(double coarse_bw, double fine_bw, const std::string& csv_path);
 
         bool load_csv(const std::string& path);
-        bool has_segment(int seg_id) const { return seg_.count(seg_id) > 0; }
         const BasePDF* get(int seg_id) const {
             auto it = seg_.find(seg_id);
             return (it == seg_.end()) ? nullptr : &it->second;
         }
-
+        
     private:
         double dt_csv_us_;
         double coarseBinWidth_;
@@ -30,7 +29,6 @@ class PDF_Lookup {
         std::string csv_path_;
 
         std::unordered_map<int, BasePDF> seg_; // seg_id -> bases
-        std::map<std::pair<int, double>, std::vector<double>> cache_;
         
         static int parse_segment_name(const std::string& header); // "Segment_12" -> 12
         static void normalize_series(std::vector<double>& v, double dt);
