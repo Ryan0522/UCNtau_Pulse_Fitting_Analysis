@@ -18,6 +18,17 @@ struct WindowStat {
     double nExpected; // PDF fit sum count
 };
 
+struct OutlierRecord {
+    int windowIndex;
+    double startTimeUs;
+    double binWidthUs;
+    int nObserved;
+    double nExpected;
+    double ratioExpOverObs;
+    std::vector<int> hist;
+    std::vector<double> totalExpected;
+};
+
 class Pulse_Fitting {
     public:
         Pulse_Fitting(const EventList& events);
@@ -36,12 +47,16 @@ class Pulse_Fitting {
             setBinWidths(c.bin_width_us, c.fine_bin_width_us);
             setMinGapUs(c.min_gap_us);
             setConfigKnobs(c.shift_us, c.seed_pe_default, c.gradient_threshold, c.guard_bin);
-            pileupMinPulses_ = c.pileup_min_pulses;
-            capturePlots_ = c.plot_fits;
+            enablePlotCapture(c.plot_fits, c.pileup_min_pulses);
+            enableOutlierCapture(c.plot_outliers, c.outlier_min_obs, c.outlier_ratio_low);
+            
             preBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, binWidth_us_));
             finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_us_));
             use_coinc_ = c.use_coinc;
             coinc_win_us_ = c.coinc_win_us;
+
+            seeding_window_ = c.seeding_window;
+            pe_min_thresh_ = c.pe_min_thresh;
         }
 
         double shift_us() const { return shiftUs_; }
@@ -51,6 +66,15 @@ class Pulse_Fitting {
             capturePlots_ = enable;
             pileupMinPulses_ = pileupMinPulses;
         }
+
+        // NEW (Sept 1, 2025): plotting outlier controls
+        void enableOutlierCapture(bool enable, int min_obs = 60, double ratio_low = 0.80) {
+            captureOutliers_ = enable;
+            outlierMinObs_ = std::max(0, min_obs);
+            outlierRatioLow_ = std::max(0.0, std::min(1.0, ratio_low));
+        }
+        const std::vector<OutlierRecord>& getOutliers() const { return outliers_; }
+
         const std::vector<int>& getSingleHist() const { return single_hist_; }
         const std::vector<double>& getSingleX() const { return single_x_; }
         const std::vector<double>& getSingleTotal() const { return single_total_; }
@@ -91,6 +115,15 @@ class Pulse_Fitting {
         int guardBin_ = 1;
         int preBins_;
         int finePreBins_;
+
+        int seeding_window_ = 5;
+        double pe_min_thresh_ = 5.0;
+
+        bool captureOutliers_ = false;
+        int outlierMinObs_ = 60;
+        double outlierRatioLow_ = 0.8;
+        std::vector<OutlierRecord> outliers_;
+        // == end NEW ==
 
         std::map<std::pair<int, double>, std::vector<std::vector<double>>> pdfCache_; // keyed by (nbins, binWidth)
 

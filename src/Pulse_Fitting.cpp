@@ -90,7 +90,7 @@ vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWi
         const int dx = (int)std::floor(age / binWidth_us);
         const int copy_len = std::min(L, fullBins - dx);
         for (int j = 0; j < copy_len; ++j) {
-            carry[j] += PE * base[j + dx];
+            carry[j] += PE * base[j + dx]; // density -> mass distribution (Sept 1st, 2025)
         }
     }
     return carry;
@@ -269,6 +269,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
                                         const vector<double>& DTs,
                                         const vector<vector<double>>& look) {
                 vector<vector<double>> comps;
+                const double bg = peBackgroundRate_ * binWidth_us * 1e-6;
                 comps.reserve(PEs.size());
                 vector<double> total(hist.size(), 0.0);
                 for (size_t m = 0; m < PEs.size(); ++m) {
@@ -277,9 +278,10 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
                     vector<double> comp(hist.size(), 0.0);
                     const auto& row = look[dt_idx];
                     for (size_t j = 0; j < hist.size(); ++j) {
-                        double val = PEs[m] * row[j];
+                        double val = PEs[m] * row[j]; // density -> mass distribution (Sept 1, 2025)
                         comp[j] = val;
                         total[j] += val;
+                        total[j] += bg;
                     }
                     comps.push_back(std::move(comp));
                 }
@@ -287,7 +289,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             };
 
             auto [totalExp, comps] = build_components(fittedPEs, fittedDTs, pdfLookup);
-    
+
             if (need_single) {
                 single_hist_ = hist;
                 single_x_ = xCenters;
@@ -375,17 +377,16 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     vector<double> peGuess = { seedPE_ };
     vector<double> dtGuess = { 0.0 };
-    const int window = 5, minPE = 5;
 
     for (int p : peaks) {
         if (p < pre_bins + guardBin_) continue;
         int idx = p - pre_bins;
         if (idx < 0 || idx > (int)hist.size()) continue;
 
-        int end = min(idx + window, static_cast<int>(hist.size()));
+        int end = min(idx + seeding_window_, static_cast<int>(hist.size()));
         int sum = accumulate(hist.begin() + idx, hist.begin() + end, 0);
 
-        if (sum >= minPE) {
+        if (sum >= pe_min_thresh_) {
             peGuess.push_back(sum);
             dtGuess.push_back(idx);
         }
@@ -452,7 +453,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     auto prune = [&](const std::vector<double>& P, const std::vector<double>& D){
         std::vector<double> p2, d2;
-        for (size_t i=0;i<P.size();++i) if (P[i] >= 5.0) { p2.push_back(P[i]); d2.push_back(D[i]); }
+        for (size_t i=0;i<P.size();++i) if (P[i] >= pe_min_thresh_) { p2.push_back(P[i]); d2.push_back(D[i]); }
         return std::make_pair(std::move(p2), std::move(d2));
     };
 
@@ -484,7 +485,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         dt_idx = std::clamp(dt_idx, 0, (int)pdfLookup.size()-1);
         const auto& row = pdfLookup[dt_idx];
         for (size_t j = 0; j < expected.size(); ++j)
-            expected[j] += fittedPEs[m] * row[j];
+            expected[j] += fittedPEs[m] * row[j]; // density -> mass distribution (Sept 1, 2025)
     }
 
     int nObs = 0; for (int c : hist) nObs += c;
@@ -511,6 +512,24 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     ws.nExpected     = nExp;
 
     windowStats_.push_back(ws);
+
+    // == NEW: capture large deviations (lower-right outliers) ==
+    if (captureOutliers_) {
+        const double ratio = (nObs > 0 ? nExp / std::max(1.0, (double)nObs) : 0.0);
+        if (nObs >= outlierMinObs_ && ratio <= outlierRatioLow_) {
+            OutlierRecord rec;
+            rec.windowIndex = curWindowIndex_;
+            rec.startTimeUs = curWindowStartUs_;
+            rec.binWidthUs = curWindowBinWidth_us_;
+            rec.nObserved = nObs;
+            rec.nExpected = nExp;
+            rec.ratioExpOverObs = ratio;
+            rec.hist = hist;
+            rec.totalExpected = expected;
+            outliers_.push_back(std::move(rec));
+        }
+    }
+    // == end NEW ==
 
     return !fittedPEs.empty();
 }

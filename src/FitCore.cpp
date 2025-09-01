@@ -41,18 +41,74 @@ static inline void dump_params_bounds(const std::vector<double>& params,
                                 const std::vector<double>& lb,
                                 const std::vector<double>& ub,
                                 int nPulses,
-                            const char* tag) 
+                                const FitProblem& prob,
+                                const std::vector<std::vector<double>>& LU, // prob.pdfLookup deref
+                                const char* tag) 
 {
     std::cerr << "\n=== NLopt debug dump: " << tag << " ===\n";
     std::cerr << "nPulses=" << nPulses
-              << "  nParams=" << params.size() << " (PE[" << nPulses
-              << "], DT[" << nPulses << "])\n";
+              << "  nParams=" << params.size()
+              << " (PE[" << nPulses << "], DT[" << nPulses << "])\n";
+
     for (size_t i = 0; i < params.size(); ++i) {
-        std::string kind = (i < (size_t)nPulses) ? "PE" : "DT";
+        const bool atL = std::abs(params[i] - lb[i]) <= 1e-12 * std::max(1.0, std::abs(lb[i]));
+        const bool atU = std::abs(params[i] - ub[i]) <= 1e-12 * std::max(1.0, std::abs(ub[i]));
+        const char* kind = (i < (size_t)nPulses) ? "PE" : "DT";
         std::cerr << "  [" << std::setw(2) << i << "] " << kind
                   << " : " << params[i]
-                  << "  bounds: [" << lb[i] << ", " << ub[i] << "]\n";
+                  << "  bounds: [" << lb[i] << ", " << ub[i] << "]"
+                  << (atL ? "  (AT-LOWER)" : "")
+                  << (atU ? "  (AT-UPPER)" : "")
+                  << "\n";
     }
+
+    const auto& y = *prob.observed;
+    const int T   = prob.nTime;
+    std::vector<double> expv(T, 0.0);
+
+    if (prob.fixedExpected) {
+        const auto& fix = *prob.fixedExpected;
+        for (int t = 0; t < T; ++t) {
+            double v = (t < (int)fix.size() ? fix[t] : 0.0);
+            expv[t] = (std::isfinite(v) && v >= 0) ? v : 0.0;
+            if (prob.fit_bg && prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0) {
+                expv[t] += prob.bg_rate_hz * prob.bin_width_sec;
+            }
+        }
+    }
+
+    const int R = (int)LU.size();
+    for (int k = 0; k < nPulses; ++k) {
+        double PE = params[k];
+        double dt = params[nPulses + k];
+        if (!(PE >= 0.0) || !std::isfinite(PE) || !std::isfinite(dt)) continue;
+
+        if (dt < 0.0) dt = 0.0;
+        if (dt > (double)(R - 1) - 1e-9) dt = (double)(R - 1) - 1e-9;
+        int i0 = (int)std::floor(dt);
+        double a = dt - i0;
+        const auto& r0 = LU[i0];
+        const auto& r1 = LU[i0 + 1];
+
+        for (int t = 0; t < T; ++t) {
+            double row = (1.0 - a) * r0[t] + a * r1[t];
+            expv[t] += PE * row;
+        }
+    }
+
+    auto sum_vec = [](const auto& v){ double s=0; for (auto x: v) s+=x; return s; };
+    auto minmax  = [](const auto& v){ double mn=1e300,mx=-1e300; for(auto x:v){mn=std::min(mn,x); mx=std::max(mx,x);} return std::pair{mn,mx}; };
+
+    const double ysum   = sum_vec(y);
+    const double msum   = sum_vec(expv);
+    const auto [emin, emax] = minmax(expv);
+
+    std::cerr << "bin_width_sec=" << prob.bin_width_sec
+              << "  bg_rate_hz=" << prob.bg_rate_hz
+              << "  fit_bg=" << (prob.fit_bg ? "true" : "false") << "\n";
+    std::cerr << "observed: sum=" << ysum << "  nTime=" << T << "\n";
+    std::cerr << "model   : sum=" << msum << "  min/max=(" << emin << ", " << emax << ")\n";
+
     std::cerr << "=== end dump ===\n\n";
 }
 
@@ -98,7 +154,7 @@ static double negLogL_core(const std::vector<double>& params,
 
         for (int t = 0; t < T; ++t) {
             double row = (1.0 - a) * r0[t] + a * r1[t];
-            double add = PE * row * prob.bin_width_sec;
+            double add = PE * row; // density -> mass distribution (Sept 1st, 2025)
             if (!std::isfinite(add) || add < 0) return 1e300;
             expv[t] += add;
         }
@@ -148,7 +204,7 @@ FitResult fit_n_pulses_bobyqa(
     try {
         nlopt::result result = opt.optimize(x, fmin);
     } catch (const std::exception& e) {
-        dump_params_bounds(x, lb, ub, nPulses, "on-error");
+        dump_params_bounds(x, lb, ub, nPulses, prob, *prob.pdfLookup, "on-error");
         std::cerr << "[NLopt] optimize() failed: " << e.what() << "\n";
         throw std::runtime_error("Fatal NLopt failure, exiting.");
         return out;

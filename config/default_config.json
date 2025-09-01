@@ -8,9 +8,12 @@
     "save_to_txt": false,
     
     "binWidth": 0.25,
-    "fineBinWidth": 0.25,
+    "fineBinWidth": 0.01,
     "minGap": 40,
     "pdf_csv_path": "./config/all_tail_response.csv",
+
+    "seeding_window": 5,
+    "pe_min_thresh": 5.0,
 
     "shift_us": 5.0,
     "seed_pe_default": 20.0,
@@ -19,6 +22,10 @@
 
     "plot_fits": false,
     "pileup_min_pulses": 2,
+
+    "plot_outliers": true,
+    "outlier_min_obs": 60,
+    "outlier_ratio_low": 0.80,
 
     "use_coinc": true,
     "coinc_win_us": 0.1

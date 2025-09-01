@@ -206,8 +206,15 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 	c.min_gap_us = cfg.value("minGap", 10);
     c.pdf_csv_path      = cfg.value("pdf_csv_path", std::string("./config/all_tail_response.csv"));
 
+	c.seeding_window = cfg.value("seeding_window", 5);
+	c.pe_min_thresh = cfg.value("pe_min_thresh", 5.0);
+
 	c.plot_fits = cfg.value("plot_fits", false);
 	c.pileup_min_pulses = cfg.value("pileup_min_pulses", 2);
+
+	c.plot_outliers = cfg.value("plot_outliers", false);
+	c.outlier_min_obs = cfg.value("outlier_min_obs", 60);
+	c.outlier_ratio_low = cfg.value("outlier_ratio_low", 0.80);
 
 	c.shift_us = cfg.value("shift_us", 5.0);
 	c.seed_pe_default = cfg.value("seed_pe_default", 20.0);

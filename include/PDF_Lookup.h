@@ -31,7 +31,7 @@ class PDF_Lookup {
         std::unordered_map<int, BasePDF> seg_; // seg_id -> bases
         
         static int parse_segment_name(const std::string& header); // "Segment_12" -> 12
-        static void normalize_series(std::vector<double>& v, double dt);
+        static void normalize_series(std::vector<double>& v);
         static void downsample(const std::vector<double>& src, double dt_src,
                                     std::vector<double>& dst, double dt_dst);
         static bool approx_int_multiple(double value, double step, double rel_eps = 1e-9);

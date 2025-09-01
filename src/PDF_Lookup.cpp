@@ -68,7 +68,7 @@ bool PDF_Lookup::load_csv(const std::string& path) {
         }
 
         downsample(p_src, dt_csv_us_, b.p_f, fineBinWidth_);
-        normalize_series(b.p_f, fineBinWidth_);
+        normalize_series(b.p_f);
 
         if (!approx_int_multiple(coarseBinWidth_, b.fineBinWidth)) {
             if (!approx_int_multiple(coarseBinWidth_, dt_csv_us_)) {
@@ -78,8 +78,7 @@ bool PDF_Lookup::load_csv(const std::string& path) {
         } else {
             downsample(b.p_f, b.fineBinWidth, b.p, coarseBinWidth_);
         }
-        normalize_series(b.p, b.binWidth);
-
+        normalize_series(b.p);
         seg_[seg_id] = std::move(b);
     }
     return true;
@@ -96,9 +95,9 @@ int PDF_Lookup::parse_segment_name(const std::string& header) {
     return std::stoi(num_str);
 }
 
-void PDF_Lookup::normalize_series(std::vector<double>& v, double dt) {
+void PDF_Lookup::normalize_series(std::vector<double>& v) {
     double area = 0.0; 
-    for (double x : v) area += x * dt;
+    for (double x : v) area += x;
     if (area > 0.0) {
         double inv = 1.0 / area;
         for (double& x : v) x *= inv;
@@ -109,15 +108,28 @@ void PDF_Lookup::downsample(const std::vector<double>& src, double dt_src, std::
     if (!PDF_Lookup::approx_int_multiple(dt_dst, dt_src)) {
         throw std::runtime_error("rebin_sum: dt_dst must be an integer multiple of dt_src.");
     }
-    int R = (int)std::llround(dt_dst / dt_src);
-    int N = (int)(src.size() / R);
-    dst.assign(N, 0.0);
-    for (int i = 0; i < N; ++i) {
+    const int R = (int)std::llround(dt_dst / dt_src);
+    const int Nfull = (int)(src.size() / R);
+    const int rem = (int)(src.size() - 1LL * Nfull * R);
+
+    dst.assign(Nfull, 0.0);
+    
+    for (int i = 0; i < Nfull; ++i) {
         double s = 0.0;
         int a = i * R;
-        for (int k = 0; k < R; ++k) s += src[a + k];  // <- SUM, not average
+        for (int k = 0; k < R; ++k) s += src[a + k];  // <- SUM mass
         dst[i] = s;
     }
+
+    if (rem > 0) {
+        double s_tail = 0.0;
+        for (int i = Nfull * R; i < (int)src.size(); ++i) s_tail += src[i];
+        if (!dst.empty()) dst.back() += s_tail;
+        else dst.push_back(s_tail);
+    }
+
+    double S = 0.0; for (double v : dst) S += v;
+    if (S > 0) { double invS = 1.0 / S; for (double& v : dst) v *= invS; }
 }
 
 bool PDF_Lookup::approx_int_multiple(double value, double step, double rel_eps) {

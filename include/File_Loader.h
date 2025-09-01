@@ -34,11 +34,18 @@ typedef struct
     int min_gap_us; // default 10 
     std::string pdf_csv_path; // default "./config/all_tail_response.csv"
 
+    int seeding_window;
+    double pe_min_thresh;
+
     json runinfo_json;
     std::set<std::string> good_runs_set;
 
     bool plot_fits;
     int pileup_min_pulses;
+
+    bool plot_outliers;
+    int outlier_min_obs;
+    double outlier_ratio_low;
 
     // --- NEW knobs to change in config.json
     double shift_us; // default 5.0 (time zero offset to add at output due to PDF generation)
