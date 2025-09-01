@@ -58,7 +58,7 @@ void PlotTail(const std::vector<std::vector<double>>& tails, const std::vector<s
     out << "\n";
 
     int nBins = tails[0].size();
-    double binWidth = 0.25; // bin width (us) must match accumulateTailHistogram call
+    double binWidth = 0.01; // bin width (us) must match accumulateTailHistogram call
 
     for (int i = 0; i < nBins; ++i) {
         out << i * binWidth;
@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 
     std::vector<std::string> segment_labels = {"12", "34", "56", "78"};
-    std::vector<std::vector<double>> pulse_tails(4, vector<double>(400, 0.0)); // 100us @ 0.25us/bin
+    std::vector<std::vector<double>> pulse_tails(4, vector<double>(10000, 0.0)); // 100us @ 0.01us/bin
     int is_valid = 0;
 
     for (int z = startrun; z < endrun; z++) {
@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
 		}
 
         if (params.contains(run) && params[run]["run_type"] == "production") {
-            std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(400, 0.0)); // per-run accumulation
+            std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(10000, 0.0)); // per-run accumulation
             vector<EventList> run_data = processfile(data_folder, run);
             if (run_data.empty()) {
                 cerr << "No data found for run " << run << ". Skipping." << endl;
@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
                 fitter.analyze();
 
                 auto signalPulses = fitter.getSignalPulses();
-                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 0.25, 100.0); // 0.01us bins, 100us range
+                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 0.01, 100.0); // 0.01us bins, 100us range
                 for (size_t b = 0; b < tail.size(); ++b) {
                     pulse_tails_single[seg][b] += tail[b];
                     pulse_tails[seg][b] += tail[b];
@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
 
     gStyle->SetOptStat(0);
     std::vector<int> colors = {kRed, kBlue, kGreen+2, kMagenta};
-    double binWidth = 0.25;
+    double binWidth = 0.01;
     int nBins = pulse_tails[0].size();
 
     std::vector<TH1D*> hists;
