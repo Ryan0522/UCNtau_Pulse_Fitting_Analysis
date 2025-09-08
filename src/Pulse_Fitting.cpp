@@ -322,7 +322,6 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
     }
 }
 
-
 vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xCenters) {
     if (xCenters.size() < 2) return {};
     const int length = static_cast<int>(xCenters.size());
