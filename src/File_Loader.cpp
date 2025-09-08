@@ -175,21 +175,17 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 		f >> cfg;
 	}
 
-	if (argc == 7) {
+	if (argc == 3) {
 		// override config via CLI args (full mode)
-        cfg["data_folder"]   = std::string(argv[1]);
-        cfg["output_folder"] = std::string(argv[2]);
-        cfg["runinfo"]       = std::string(argv[3]);
-        cfg["good_runs"]     = std::string(argv[4]);
-        cfg["start_run"]     = std::stoi(argv[5]);
-        cfg["end_run"]       = std::stoi(argv[6]);
+        cfg["start_run"]     = std::stoi(argv[1]);
+        cfg["end_run"]       = std::stoi(argv[2]);
 		// Note: save_to_txt is *not* settable from CLI anymore
-    } else if (argc != 1 && argc != 2) {
+    } else if (argc != 2) {
         // throw hint on bad arg count
 		throw std::runtime_error(
-            "Expected 7 args in full mode.\n"
+            "Expected 3 args in full mode (2 in config mode).\n"
             "Usage (config): prog [config.json]\n"
-            "Usage (full):   prog ./data/ ./out/ ./runinfo.json ./good_runs.txt");
+            "Usage (full):   prog StartRun EndRun");
     }
 
 	// populate Config object with defaults + overrides
@@ -200,6 +196,8 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
     c.start_run = cfg.value("start_run", 0);
     c.end_run = cfg.value("end_run", 0);
     c.save_to_txt = cfg.value("save_to_txt", false);
+	c.epoch_path = cfg.value("epoch_path", "./config/epoch_info.json");
+	c.epoch = cfg.value("epoch", 2);
 
 	c.bin_width_us      = cfg.value("binWidth", 1.0);
     c.fine_bin_width_us = cfg.value("fineBinWidth", 0.25);
@@ -230,6 +228,12 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
         if (!i) throw std::runtime_error("Cannot open runinfo JSON: " + c.runinfo_path);
         i >> c.runinfo_json;
     }
+
+	{
+		std::ifstream i(c.epoch_path);
+		if (!i) throw std::runtime_error("Cannot open epoch JSON: " + c.epoch_path);
+		i >> c.epoch_json;
+	}
 
 	// load list of "good runs" (as strings)
 	std::set<std::string> good_runs;

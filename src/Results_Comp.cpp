@@ -15,8 +15,10 @@
 #include <TGaxis.h>
 #include <TGraph.h>
 #include <TLine.h>
+#include <filesystem>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 static inline std::string trim(const std::string& s) {
     auto a = s.find_first_not_of(" \t\r\n");
@@ -25,10 +27,10 @@ static inline std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
-vector<PulseRow> load_pulse_results(int run_number, const string& output_folder) {
+vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const string& output_folder) {
     vector<PulseRow> rows;
     const string base = ensureTrailingSlash(output_folder);
-    const string path = base + "results/PulseAnalysis_" + std::to_string(run_number) + ".csv";
+    const string path = base + "results/epoch_" + epoch + "/PulseAnalysis_" + std::to_string(run_number) + ".csv";
 
     std::ifstream in(path);
     if (!in) {
@@ -68,7 +70,7 @@ vector<PulseRow> load_pulse_results(int run_number, const string& output_folder)
     return rows;
 }
 
-vector<CoincRow> load_coinc_results(int run_number, const string& output_folder) {
+vector<CoincRow> load_coinc_results(int run_number, std::string epoch, const string& output_folder) {
     vector<CoincRow> rows;
     const string base = ensureTrailingSlash(output_folder) + "coincidences/";
     const string path = base + "testPECountsPerCoincRun" + std::to_string(run_number) + "_5PEthreshold.csv";
@@ -97,9 +99,9 @@ vector<CoincRow> load_coinc_results(int run_number, const string& output_folder)
     return rows;
 }
 
-std::vector<WindowRow> load_window_stats(int run_number, const std::string& output_folder) {
+std::vector<WindowRow> load_window_stats(int run_number, std::string epoch, const std::string& output_folder) {
     std::vector<WindowRow> rows;
-    const string base = ensureTrailingSlash(output_folder) + "results/";
+    const string base = ensureTrailingSlash(output_folder) + "results/epoch_" + epoch + "/";
     const string path = base + "PulseWindowStats_" + std::to_string(run_number) + ".csv";
 
     std::ifstream in(path);
@@ -605,13 +607,31 @@ int main(int argc, char **argv) {
     std::string output_folder = ensureTrailingSlash(cfg.output_folder);
     int         startrun      = cfg.start_run;
     int         endrun        = cfg.end_run;
+    json epoch_json = cfg.epoch_json;
+	std::string epoch = std::to_string(cfg.epoch);
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 	vector<EventList> run_data;
 	
+    int epoch_start = startrun;
+	int epoch_end = endrun;
+
+	if (epoch_json.contains(epoch)) {
+		const auto& e = epoch_json[epoch];
+		epoch_start = e["start_run_number"].get<int>();
+		epoch_end = e["end_run_number"].get<int>();
+	}
+
 	for (int z =startrun; z<endrun;z++){
 
 		string run = std::to_string(z);
+
+        if (z < epoch_start || z > epoch_end) {
+			std::cerr << "Run " << run << " outside epoch " << epoch
+                          << " range [" << epoch_start << ", " << epoch_end << "]. Skipping.\n";
+            continue;
+		}
+        
 		// skip runs not in good runs list
 		if (good_runs.find(run) == good_runs.end()) {
 			cerr << "Run " << run << " not found in good runs list. Skipping." << endl;
@@ -624,15 +644,15 @@ int main(int argc, char **argv) {
         } 
 
         // --- load ---
-        auto pulse = load_pulse_results(z, output_folder);
+        auto pulse = load_pulse_results(z, epoch, output_folder);
 
         cout << "Loaded pulse output: " << pulse.size() << " Entries" << endl;
 
-        auto coinc = load_coinc_results(z, output_folder);
+        auto coinc = load_coinc_results(z, epoch, output_folder);
 
         cout << "Loaded coinc output: " << coinc.size() << " Entries" << endl;
 
-        auto ws = load_window_stats(z, output_folder);
+        auto ws = load_window_stats(z, epoch, output_folder);
 
         cout << "Loaded window stats: " << ws.size() << " Entries" << endl;
         
@@ -643,9 +663,11 @@ int main(int argc, char **argv) {
 
         string out_prefix;
         if (cfg.use_coinc) {
-            out_prefix = output_folder + "graphs/comp_coinc/" + run;
+            out_prefix = output_folder + "graphs/epoch_" + epoch + "/comp_coinc/" + run;
+            fs::create_directories(fs::path(output_folder + "graphs/epoch_" + epoch + "/comp_coinc/"));
         } else {
-            out_prefix = output_folder + "graphs/comp_no_coinc/" + run;
+            out_prefix = output_folder + "graphs/epoch_" + epoch + "/comp_no_coinc/" + run;
+            fs::create_directories(fs::path(output_folder + "graphs/epoch_" + epoch + "/comp_no_coinc/"));
         }
         plot_comparisons(pulse, coinc, out_prefix, params[run]);
         plot_neglog_hist(ws, out_prefix, 200);

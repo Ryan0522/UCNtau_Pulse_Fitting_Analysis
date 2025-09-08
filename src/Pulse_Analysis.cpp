@@ -11,8 +11,10 @@
 #include <TGraph.h>
 #include <TLegend.h>
 #include <TStyle.h>
+#include <filesystem>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "data_folder        = " << c.data_folder << "\n";
@@ -22,6 +24,8 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "start_run          = " << c.start_run << "\n";
     os << "end_run            = " << c.end_run << "\n";
     os << "save_to_txt        = " << std::boolalpha << c.save_to_txt << "\n";
+	os << "epoch_path         = " << c.epoch_path << "\n";
+	os << "epoch              = " << c.epoch << "\n";
 
     os << "bin_width_us       = " << c.bin_width_us << "\n";
     os << "fine_bin_width_us  = " << c.fine_bin_width_us << "\n";
@@ -195,8 +199,11 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	
 	vector<string> segment_labels = {"12", "34", "56", "78"};
 	vector<int> seg_ids = {12, 34, 56, 78};
-	string pulses_file = output_folder + "results/PulseAnalysis_" + to_string(params["run_number"]) + ".csv";
-	string windows_file = output_folder + "results/PulseWindowStats_" + to_string(params["run_number"]) + ".csv";
+	string pulses_file = output_folder + "results/epoch_" + to_string(cfg.epoch) + "/PulseAnalysis_" + to_string(params["run_number"]) + ".csv";
+	string windows_file = output_folder + "results/epoch_" + to_string(cfg.epoch) + "/PulseWindowStats_" + to_string(params["run_number"]) + ".csv";
+
+	fs::create_directories(fs::path(pulses_file).parent_path());
+	fs::create_directories(fs::path(windows_file).parent_path());
 
 	ofstream out(pulses_file);
 	ofstream ws(windows_file);
@@ -221,7 +228,8 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 
 		// plotting (if enabled and available)
 		if (cfg.plot_fits) {
-			std::string base = ensureTrailingSlash(output_folder) + "graphs/PE_Fitting/";
+			std::string base = ensureTrailingSlash(output_folder) + "graphs/epoch_" + to_string(cfg.epoch) + "/PE_Fitting/";
+			fs::create_directories(base);
 			const auto& sh = fitter.getSingleHist();
 			
 			if (!sh.empty()) {
@@ -245,7 +253,9 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		}
 
 		if (cfg.plot_outliers) {
-			std::string base = ensureTrailingSlash(output_folder) + "graphs/debug/";
+			std::string base = ensureTrailingSlash(output_folder) + "graphs/epoch_" + to_string(cfg.epoch) + "/debug/";
+			fs::create_directories(base);
+
 			const auto& bad = fitter.getOutliers();
 			for (const auto& r : bad) {
 				plot_outlier_overlay(r, base, segment_labels[seg]);
@@ -311,10 +321,21 @@ int main(int argc, char **argv) {
     int         startrun      = cfg.start_run;
     int         endrun        = cfg.end_run;
     bool        save_to_txt   = cfg.save_to_txt;
+	json epoch_json = cfg.epoch_json;
+	std::string epoch = std::to_string(cfg.epoch);
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 	vector<EventList> run_data;
 	
+	int epoch_start = startrun;
+	int epoch_end = endrun;
+
+	if (epoch_json.contains(epoch)) {
+		const auto& e = epoch_json[epoch];
+		epoch_start = e["start_run_number"].get<int>();
+		epoch_end = e["end_run_number"].get<int>();
+	}
+
 	if (save_to_txt) {
 		cout << "** Note: converting data to text, no analysis will be performed **" << endl;
 	}
@@ -322,6 +343,13 @@ int main(int argc, char **argv) {
 	for (int z =startrun; z<endrun;z++){
 
 		string run = std::to_string(z);
+		
+		if (z < epoch_start || z > epoch_end) {
+			std::cerr << "Run " << run << " outside epoch " << epoch
+                          << " range [" << epoch_start << ", " << epoch_end << "]. Skipping.\n";
+            continue;
+		}
+
 		// skip runs not in good runs list
 		if (good_runs.find(run) == good_runs.end()) {
 			cerr << "Run " << run << " not found in good runs list. Skipping." << endl;

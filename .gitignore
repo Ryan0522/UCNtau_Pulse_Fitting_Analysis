@@ -21,6 +21,7 @@ PEcoincidences2022
 *.sbatch
 *.slurm
 out/
+legacy/
 
 # VSCode settings (optional)
 .vscode/

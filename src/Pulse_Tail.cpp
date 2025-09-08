@@ -1,6 +1,7 @@
 #include "Pulse_Tail.h"
 #include "File_Loader.h"
 #include "Pulse_Fitting.h"
+#include "PDF_Global.h"
 #include <json.hpp>
 #include <fstream>
 #include <iostream>
@@ -8,12 +9,52 @@
 #include <TH1D.h>
 #include <TLegend.h>
 #include <TStyle.h>
+#include <filesystem>
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+std::ostream& operator<<(std::ostream& os, const Config& c) {
+    os << "data_folder        = " << c.data_folder << "\n";
+    os << "output_folder      = " << c.output_folder << "\n";
+    os << "runinfo_path       = " << c.runinfo_path << "\n";
+    os << "good_runs_path     = " << c.good_runs_path << "\n";
+    os << "start_run          = " << c.start_run << "\n";
+    os << "end_run            = " << c.end_run << "\n";
+    os << "save_to_txt        = " << std::boolalpha << c.save_to_txt << "\n";
+	os << "epoch_path         = " << c.epoch_path << "\n";
+	os << "epoch              = " << c.epoch << "\n";
+
+    os << "bin_width_us       = " << c.bin_width_us << "\n";
+    os << "fine_bin_width_us  = " << c.fine_bin_width_us << "\n";
+    os << "min_gap_us         = " << c.min_gap_us << "\n";
+    os << "pdf_csv_path       = " << c.pdf_csv_path << "\n";
+    os << "good_runs_count    = " << c.good_runs_set.size() << "\n";
+
+	os << "seeding_window     = " << c.seeding_window << "\n";
+    os << "pe_min_thresh      = " << c.pe_min_thresh << "\n";
+
+    os << "shift_us           = " << c.shift_us << "\n";
+    os << "seed_pe_default    = " << c.seed_pe_default << "\n";
+    os << "gradient_threshold = " << c.gradient_threshold << "\n";
+    os << "guard_bin          = " << c.guard_bin << "\n";
+
+    os << "plot_fits          = " << std::boolalpha << c.plot_fits << "\n";
+    os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
+
+	os << "plot_outliers      = " << std::boolalpha << c.plot_outliers << "\n";
+    os << "outlier_min_obs    = " << c.outlier_min_obs << "\n";
+    os << "outlier_ratio_low  = " << c.outlier_ratio_low << "\n";
+
+	os << "use_coinc          = " << std::boolalpha << c.use_coinc << "\n";
+	os << "coinc_win_us       = " << c.coinc_win_us << "\n";
+
+    return os;
+}
 
 // Accumulate the histogram for the tail response of PMTs
 std::vector<double> accumulateTailHistogram(
-    const std::vector<std::tuple<double, double, int, double, bool>>& pulses,
+    const std::vector<std::tuple<double, double, int, double, bool, bool>>& pulses,
     const EventList& run_data,
     double binWidth, 
     double maxTime)
@@ -32,7 +73,7 @@ std::vector<double> accumulateTailHistogram(
 
         for (const auto& e : run_data) {
             double t = e.realtime * 1e6; // PE time (us)
-            double dt = t - (pulse_time - 5.0); // allow dt >= -5us by shifting origin
+            double dt = t - (pulse_time - 10.0); // allow dt >= -5us by shifting origin
             if (dt >= 0 && dt < maxTime) {
                 int bin = static_cast<int>(dt / binWidth);
                 hist[bin] += 1.0;
@@ -58,7 +99,7 @@ void PlotTail(const std::vector<std::vector<double>>& tails, const std::vector<s
     out << "\n";
 
     int nBins = tails[0].size();
-    double binWidth = 0.25; // bin width (us) must match accumulateTailHistogram call
+    double binWidth = 0.01; // bin width (us) must match accumulateTailHistogram call
 
     for (int i = 0; i < nBins; ++i) {
         out << i * binWidth;
@@ -76,44 +117,62 @@ using namespace std;
 int main(int argc, char **argv) {
     Config cfg;
 	try {
-		cfg = load_config(argc, argv);
-		std::cout << "====================================" << std::endl;
-		std::cout << "Data folder: "   << cfg.data_folder   << "\n";
-        std::cout << "Output folder: " << cfg.output_folder << "\n";
-		std::cout << "Runinfo path: "  << cfg.runinfo_path  << "\n";
-		std::cout << "Good runs path: "<< cfg.good_runs_path<< "\n";
-        std::cout << "Start run: "     << cfg.start_run     << "\n";
-        std::cout << "End run: "       << cfg.end_run       << "\n";
-        std::cout << "Good runs loaded: " << cfg.good_runs_set.size() << " entries\n";
+		cfg = load_config(argc, argv); // parse CLI/config, load runinfo + good runs
+		std::cout << "\n========== Loaded Config ===========\n" << cfg << std::endl;
 		std::cout << "====================================" << std::endl;
 	} catch (const std::exception& e) {
 		cerr << "Error starting program: " << e.what() << endl;
 		return 1;
 	}
 
+    init_global_pdf(cfg);
+
+    // disable plotting to save time
+    cfg.plot_fits = false;
+    cfg.plot_outliers = false;
+
 	std::string data_folder   = ensureTrailingSlash(cfg.data_folder);
     std::string output_folder = ensureTrailingSlash(cfg.output_folder);
     int         startrun      = cfg.start_run;
     int         endrun        = cfg.end_run;
     bool        save_to_txt   = cfg.save_to_txt;
+    json epoch_json = cfg.epoch_json;
+    std::string epoch = std::to_string(cfg.epoch);
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 
     std::vector<std::string> segment_labels = {"12", "34", "56", "78"};
-    std::vector<std::vector<double>> pulse_tails(4, vector<double>(400, 0.0)); // 100us @ 0.25us/bin
+    std::vector<std::vector<double>> pulse_tails(4, vector<double>(10000, 0.0)); // 100us @ 0.01us/bin
     int is_valid = 0;
+    std::vector<EventList> run_data;
+
+    int epoch_start = startrun;
+	int epoch_end = endrun;
+
+	if (epoch_json.contains(epoch)) {
+		const auto& e = epoch_json[epoch];
+		epoch_start = e["start_run_number"].get<int>();
+		epoch_end = e["end_run_number"].get<int>();
+	}
 
     for (int z = startrun; z < endrun; z++) {
 
         string run = std::to_string(z);
+
+        if (z < epoch_start || z > epoch_end) {
+			std::cerr << "Run " << run << " outside epoch " << epoch
+                          << " range [" << epoch_start << ", " << epoch_end << "]. Skipping.\n";
+            continue;
+		}
+
 		if (good_runs.find(run) == good_runs.end()) {
 			cerr << "Run " << run << " not found in good runs list. Skipping." << endl;
 			continue;
 		}
 
         if (params.contains(run) && params[run]["run_type"] == "production") {
-            std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(400, 0.0)); // per-run accumulation
-            vector<EventList> run_data = processfile(data_folder, run);
+            std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(10000, 0.0)); // per-run accumulation
+            run_data = processfile(data_folder, run);
             if (run_data.empty()) {
                 cerr << "No data found for run " << run << ". Skipping." << endl;
                 continue;
@@ -126,18 +185,23 @@ int main(int argc, char **argv) {
             for (size_t seg = 0; seg < run_data.size(); ++seg) {
                 // fit pulses on this segment to identify neutron events
                 Pulse_Fitting fitter(run_data[seg]);
+                fitter.initFromConfig(cfg);
+                fitter.setSegmentId(stoi(segment_labels[seg]));
+                fitter.setConfigKnobs(cfg.shift_us, cfg.seed_pe_default, cfg.gradient_threshold, cfg.guard_bin);
+
                 fitter.setWindow(start * 1e6, stop * 1e6);
                 fitter.setBackgroundWindow(bg_start * 1e6);
                 fitter.analyze();
 
                 auto signalPulses = fitter.getSignalPulses();
-                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 0.25, 100.0); // 0.01us bins, 100us range
+                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 0.01, 100.0); // 0.01us bins, 100us range
                 for (size_t b = 0; b < tail.size(); ++b) {
                     pulse_tails_single[seg][b] += tail[b];
                     pulse_tails[seg][b] += tail[b];
                 }
             }
-            PlotTail(pulse_tails_single, segment_labels, output_folder + "/tail/summed_tail_response_" + run + ".csv");
+            fs::create_directories(output_folder + "tail/epoch_" + epoch);
+            PlotTail(pulse_tails_single, segment_labels, output_folder + "tail/epoch_" + epoch + "/summed_tail_response_" + run + ".csv");
             // write per-run CSV of cumulative tails (all segments)
             run_data.clear();
             pulse_tails_single.clear();
@@ -192,7 +256,8 @@ int main(int argc, char **argv) {
     }
     leg2->Draw();
 
-    c1->SaveAs((output_folder + "/graphs/PE_Response/summed_tail_response" +
+    fs::create_directories(output_folder + "graphs/epoch_" + epoch + "/PE_Response");
+    c1->SaveAs((output_folder + "/graphs/epoch_" + epoch + "/PE_Response/summed_tail_response" +
                 std::to_string(startrun) + "_" + std::to_string(endrun) + ".png").c_str());
     return 0;
 }

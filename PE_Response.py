@@ -5,8 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.optimize as opt
 
-ANALYSIS_DIR = './output/tail/'
-GRAPH_DIR = './output/graphs/'
+ANALYSIS_DIR = './output/tail/epoch_2/'
+GRAPH_DIR = './output/graphs/epoch_2/'
 
 df_list = []
 

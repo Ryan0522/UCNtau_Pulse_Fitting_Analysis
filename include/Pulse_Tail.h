@@ -7,7 +7,7 @@
 #include "File_Loader.h" // For EventList
 
 std::vector<double> accumulateTailHistogram(
-    const std::vector<std::tuple<double, double, int, double, bool>>& pulses,
+    const std::vector<std::tuple<double, double, int, double, bool, bool>>& pulses,
     const EventList& run_data,
     double binWidth, 
     double maxTime);

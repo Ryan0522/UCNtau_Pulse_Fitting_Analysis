@@ -28,6 +28,8 @@ typedef struct
     int start_run;
     int end_run;
     bool save_to_txt;
+    std::string epoch_path;
+    int epoch; // default 2
     
     double bin_width_us; // default 1.0
     double fine_bin_width_us; // default 0.25
@@ -38,6 +40,7 @@ typedef struct
     double pe_min_thresh;
 
     json runinfo_json;
+    json epoch_json;
     std::set<std::string> good_runs_set;
 
     bool plot_fits;
