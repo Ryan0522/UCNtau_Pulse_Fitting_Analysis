@@ -54,7 +54,7 @@ class Pulse_Fitting {
             finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_us_));
             use_coinc_ = c.use_coinc;
             coinc_win_us_ = c.coinc_win_us;
-
+            
             seeding_window_ = c.seeding_window;
             pe_min_thresh_ = c.pe_min_thresh;
         }
@@ -107,6 +107,9 @@ class Pulse_Fitting {
         double backgroundAfterUs_ = 0; // bg start (us), bg end = start + 60s
         int segmentId_ = 12; // default
         std::vector<double> peTimes_us_; // all PE times (us)
+        std::vector<int> peChans_; // all PE channels
+
+        std::pair<int, int> segChPair_ = {-1, -1};
 
         // --- NEW configurable knobs (defaults if config omits them)
         double shiftUs_ = 5.0;
@@ -178,7 +181,9 @@ class Pulse_Fitting {
         std::vector<std::vector<double>> generatePDFLookup(const std::vector<double>& xCenters); // cached shifted PDFs
 
         std::vector<int> findGradientPeaks(const std::vector<int>& hist, double threshold);
-                                
+          
+        std::vector<int> findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const;
+
         bool fitPulses(const std::vector<int>& hist, const std::vector<double>& xCenters,
                     const std::vector<std::vector<double>>& pdfLookup,
                     std::vector<double>& fittedPEs, std::vector<double>& fittedDTs, 

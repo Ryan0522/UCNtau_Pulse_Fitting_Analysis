@@ -169,8 +169,8 @@ static void plot_outlier_overlay(const OutlierRecord& r, const string& out_dir, 
 	
     hObs.GetXaxis()->SetTitle("t_{rel} [#mu s]");
     hObs.GetYaxis()->SetTitle("Counts per bin");
-    hObs.SetTitle(Form("Outlier window %d  (obs=%d PDF=%.1f ratio=%.2f)",
-                       r.windowIndex, r.nObserved, r.nExpected, r.ratioExpOverObs));
+    hObs.SetTitle(Form("Outlier window %d  (obs=%d PDF=%.1f ratio=%.2f start=%.1f us width=%.1f us)",
+                       r.windowIndex, r.nObserved, r.nExpected, r.ratioExpOverObs, r.startTimeUs));
     
 	double ymax = std::max(hObs.GetMaximum(), hExp.GetMaximum());
 	hObs.SetMaximum(std::max(1.0, 1.15*ymax));

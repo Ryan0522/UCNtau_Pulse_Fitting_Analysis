@@ -98,12 +98,15 @@ vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWi
 
 void Pulse_Fitting::extractTimes(const EventList& events) {
     // linearize event.realtime (s) -> vector of times (us)
-    vector<double> times;
-    times.reserve(events.size());
+    peTimes_us_.clear();
+    peChans_.clear();
+    peTimes_us_.reserve(events.size());
+    peChans_.reserve(events.size());
+    
     for (const auto& e : events) {
-        times.push_back(e.realtime * 1e6);
+        peTimes_us_.push_back(e.realtime * 1e6);
+        peChans_.push_back(e.channel);
     }
-    peTimes_us_ = move(times);
 }
 
 vector<double> Pulse_Fitting::applyTimeWindow(const vector<double>& times, double start, double end) {
@@ -365,14 +368,85 @@ vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thr
     return peaks;
 }
 
+vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const
+{
+    std::vector<int> seeds;
+    const int N = (int)peTimes_us_.size();
+    if (N < 2) return seeds;
+
+    auto it0 = std::lower_bound(peTimes_us_.begin(), peTimes_us_.end(), startUs);
+    int i0 = (int)std::distance(peTimes_us_.begin(), it0);
+
+    for (int i = i0; i < N; ++i) {
+        const double t0 = peTimes_us_[i];
+        if (t0 >= endUs) break;
+        const int ch0 = peChans_[i];
+
+        bool armed = false;
+        int total = 1;
+        for (int j = i + 1; j < N; ++j) {
+            const double tj = peTimes_us_[j];
+            if (tj >= endUs) break;
+            const double dt = tj - t0;
+            if (dt > coinc_win_us_) break;
+            if (!armed && peChans_[j] != ch0) armed = true;
+            ++total;
+        }
+
+        const int seed_idx = pre_bins + (int)std::floor((t0 - startUs) / binWidthUs);
+        const bool accepted = (armed && total >= 2);
+        if (accepted) seeds.push_back(seed_idx);
+    }
+
+    std::sort(seeds.begin(), seeds.end());
+    seeds.erase(std::unique(seeds.begin(), seeds.end()), seeds.end());
+
+    return seeds;
+}
+
 bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCenters,
                               const vector<vector<double>>& pdfLookup,
                               vector<double>& fittedPEs, vector<double>& fittedDTs,
                               const double binWidth_us,
                               const vector<double>* fixedExpected) 
 {
-    const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth_us));
-    vector<int> peaks = findGradientPeaks(hist, gradThr_);
+    const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth_us)); // Since PDF is shifted by +5 us
+    std::vector<int> peaks;
+
+    const bool dbg = (curWindowIndex_ == 1779 || curWindowIndex_ == 1147) && segmentId_ == 12;
+
+    if (use_coinc_) {
+        const double startUs = curWindowStartUs_;
+        const double endUs = curWindowStartUs_ + std::max(0, (int)xCenters.size() - pre_bins) * binWidth_us;
+        peaks = findCoincidenceSeeds(startUs, endUs, binWidth_us, pre_bins);
+        if (dbg) {
+            std::vector<int> dbg_grad_peaks = findGradientPeaks(hist, gradThr_);
+            std::cerr << "[COINC] window#" << curWindowIndex_
+                    << " start=" << startUs << "us"
+                    << " end=" << endUs << "us"
+                    << " duration=" << (endUs - startUs) << "us"
+                    << " binWidth=" << binWidth_us
+                    << " pre_bins=" << pre_bins
+                    << " nbins=" << xCenters.size()
+                    << "\n";
+
+            std::cerr << "  xCenters: ";
+            for (auto& b : xCenters) std::cerr << b << ' ';
+            std::cerr << "\n";  
+            std::cerr << "  hist: ";
+            for (auto& b : hist) std::cerr << b << ' ';
+            std::cerr << "\n";     
+            
+            std::cerr << "  [GRAD] seed bins: ";
+            for (int b : dbg_grad_peaks) std::cerr << b << ' ';
+            std::cerr << "\n";
+            std::cerr << "  seed bins: ";
+            for (int b : peaks) std::cerr << b << ' ';
+            std::cerr << "\n";
+        }
+    } else {
+        peaks = findGradientPeaks(hist, gradThr_);
+    }
 
     vector<double> peGuess = { seedPE_ };
     vector<double> dtGuess = { 0.0 };
@@ -380,10 +454,19 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     for (int p : peaks) {
         if (p < pre_bins + guardBin_) continue;
         int idx = p - pre_bins;
+
+        if (dbg) {
+            std::cerr << "  [PEAK] raw peak at bin " << p << " -> dt guess at bin " << idx << "\n";
+        }
+
         if (idx < 0 || idx > (int)hist.size()) continue;
 
-        int end = min(idx + seeding_window_, static_cast<int>(hist.size()));
-        int sum = accumulate(hist.begin() + idx, hist.begin() + end, 0);
+        int end = min(p + seeding_window_, static_cast<int>(hist.size())); // p here not idx because there are pre-bins
+        int sum = accumulate(hist.begin() + p, hist.begin() + end, 0); // p here not idx because there are pre-bins
+
+        if (dbg) {
+            std::cerr << "    [PEAK] sum from bin " << idx << " to " << end - 1 << " = " << sum << "\n";
+        }
 
         if (sum >= pe_min_thresh_) {
             peGuess.push_back(sum);
@@ -400,6 +483,18 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     }
 
     if (newPE.empty()) return false;
+
+    
+    if (dbg) {
+        std::cerr << "  [INIT] raw pe/dt guesses (size=" << peGuess.size() << "): ";
+        for (size_t i=0;i<peGuess.size();++i) std::cerr << "(" << peGuess[i] << "," << dtGuess[i] << ") ";
+        std::cerr << "\n";
+
+        std::cerr << "  [INIT] after threshold pe/dt (size=" << newPE.size() << "): ";
+        for (size_t i=0;i<newPE.size();++i) std::cerr << "(" << newPE[i] << "," << newDT[i] << ") ";
+        std::cerr << "\n";
+    }
+
 
     FitProblem prob;
     prob.observed = &hist;
@@ -421,7 +516,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     for (size_t i=0;i<newPE.size();++i) seeds.emplace_back(newDT[i], newPE[i]);
     std::sort(seeds.begin(), seeds.end(), [](auto a, auto b){ return a.first < b.first; });
 
-    const int closeBins = 4;
+    const int closeBins = (int)std::llround(5.0 / (binWidth_us + 1e-9)); // within 5 us
     auto clusters = cluster_seeds(seeds, closeBins);
 
     KSelectOptions kopt;
@@ -447,8 +542,24 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         }
     }
     
+    if (dbg) {
+        std::cerr << "  [SEL] chosen for global fit (size=" << chosenPEs.size() << "): ";
+        for (size_t i=0;i<chosenPEs.size();++i) std::cerr << "(" << chosenPEs[i] << "," << chosenDTs[i] << ") ";
+        std::cerr << "\n";
+    }
+
     auto r = fit_global_from_selections(prob, chosenPEs, chosenDTs, peMin, peMax, dtMin, dtMax, 200);
     if (!r.ok || r.PEs.empty()) return false;
+
+    if (dbg) {
+        if (r.ok) {
+            std::cerr << "  [GLOBAL] after fit_global_from_selections: ";
+            for (size_t i=0;i<r.PEs.size();++i) std::cerr << "(" << r.PEs[i] << "," << r.DTs[i] << ") ";
+            std::cerr << "\n";
+        } else {
+            std::cerr << "  [GLOBAL] fit_global_from_selections failed\n";
+        }
+    }
 
     auto prune = [&](const std::vector<double>& P, const std::vector<double>& D){
         std::vector<double> p2, d2;
@@ -473,6 +584,12 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     fittedPEs = std::move(r.PEs);
     fittedDTs = std::move(r.DTs);
+
+    if (dbg) {
+        std::cerr << "  [FINAL] fitted pe/dt: ";
+        for (size_t i=0;i<fittedPEs.size();++i) std::cerr << "(" << fittedPEs[i] << "," << fittedDTs[i] << ") ";
+        std::cerr << "\n\n";
+    }
 
     vector<double> expected(hist.size(), 0.0);
     if (fixedExpected) {

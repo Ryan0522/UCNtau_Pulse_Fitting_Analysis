@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
+#include <algorithm>
 
 std::vector<double> g_log_fact = [](){
     const int MAX_K = 1000;
@@ -238,28 +239,28 @@ static void init_k_weighted(
 {
     K = std::max(1, K);
     pe0.clear(); dt0.clear();
-    if (cl.empty()) { pe0.assign(K, 1.0); dt0.assign(K, 0.0); return; }
+    if (cl.empty()) { pe0.assign(K,1.0); dt0.assign(K,0.0); return; }
 
-    double wsum = 0.0;
-    for (const auto& s : cl) wsum += std::max(1.0, s.second);
+    struct S { double dt, w; };
+    std::vector<S> v; v.reserve(cl.size());
+    for (auto& p : cl) v.push_back({ p.first, std::max(1.0, p.second) });
 
-    pe0.assign(K, std::max(1.0, wsum / K));
-    dt0.resize(K);
-
-    const double step = wsum / K;
-
-    // two-pointer cumulative scan (using acc. weight to split dts)
-    // following cl, find each index for (i+0.5)*step 
-    double acc = 0.0; // accumulated weight
-    size_t j = 0;// cl index
-    for (int i=0; i<K; ++i) {
-        const double target = (i + 0.5) * step;
-        while (j + 1 < cl.size() && acc + std::max(1.0, cl[j].second) < target) {
-            acc += std::max(1.0, cl[j].second);
-            ++j;
-        }
-        dt0[i] = cl[j].first; // use dt0 near where the weight cut it
+    if (v.size() > (size_t)K) {
+        std::nth_element(v.begin(), v.begin()+K, v.end(),
+                         [](const S& a, const S& b){ return a.w > b.w; });
+        v.resize(K);
     }
+
+    std::sort(v.begin(), v.end(), [](const S& a, const S& b){ return a.dt < b.dt; });
+    const double eps = 0.25;
+    for (int i = 1; i < (int)v.size(); ++i)
+        if (v[i].dt <= v[i-1].dt) v[i].dt = v[i-1].dt + eps;
+
+    while ((int)v.size() < K) v.push_back({ v.empty()?0.0 : v[0].dt + eps*v.size(),
+                                            v.empty()?1.0 : v[0].w });
+
+    pe0.resize(K); dt0.resize(K);
+    for (int i = 0; i < K; ++i) { dt0[i] = v[i].dt; pe0[i] = std::max(1.0, v[i].w); }
 }
 
 std::pair<FitResult,int> select_k_for_cluster(

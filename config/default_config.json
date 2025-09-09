@@ -21,12 +21,12 @@
     "gradient_threshold": 2.0,
     "guard_bin": 1,
 
-    "plot_fits": false,
+    "plot_fits": true,
     "pileup_min_pulses": 2,
 
     "plot_outliers": true,
-    "outlier_min_obs": 60,
-    "outlier_ratio_low": 0.80,
+    "outlier_min_obs": 120,
+    "outlier_ratio_low": 0.50,
 
     "use_coinc": true,
     "coinc_win_us": 0.1
