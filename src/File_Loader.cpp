@@ -204,7 +204,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 	c.min_gap_us = cfg.value("minGap", 10);
     c.pdf_csv_path      = cfg.value("pdf_csv_path", std::string("./config/all_tail_response.csv"));
 
-	c.seeding_window = cfg.value("seeding_window", 5);
+	c.seeding_window_us = cfg.value("seeding_window_us", 2.0);
 	c.pe_min_thresh = cfg.value("pe_min_thresh", 5.0);
 
 	c.plot_fits = cfg.value("plot_fits", false);
@@ -218,9 +218,15 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 	c.seed_pe_default = cfg.value("seed_pe_default", 20.0);
 	c.gradient_threshold = cfg.value("gradient_threshold", 2.0);
 	c.guard_bin = cfg.value("guard_bin", 1);
+	c.cluster_close_us = cfg.value("cluster_close_us", 3.0);
 	
 	c.use_coinc = cfg.value("use_coinc", false);
 	c.coinc_win_us = cfg.value("coinc_win_us", 0.1);
+	c.coinc_seed_pe_min = cfg.value("coinc_seed_pe_min", 2);
+
+	c.debug = cfg.value("debug", false);
+	c.debug_window_index = cfg.value("debug_window_index", -1);
+	c.debug_segment_id = cfg.value("debug_segment_id", -1);
 
 	// load runinfo JSON
     {

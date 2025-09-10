@@ -33,13 +33,14 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "pdf_csv_path       = " << c.pdf_csv_path << "\n";
     os << "good_runs_count    = " << c.good_runs_set.size() << "\n";
 
-	os << "seeding_window     = " << c.seeding_window << "\n";
+	os << "seeding_window_us  = " << c.seeding_window_us << "\n";
     os << "pe_min_thresh      = " << c.pe_min_thresh << "\n";
 
     os << "shift_us           = " << c.shift_us << "\n";
     os << "seed_pe_default    = " << c.seed_pe_default << "\n";
     os << "gradient_threshold = " << c.gradient_threshold << "\n";
     os << "guard_bin          = " << c.guard_bin << "\n";
+	os << "cluster_close_us   = " << c.cluster_close_us << "\n";
 
     os << "plot_fits          = " << std::boolalpha << c.plot_fits << "\n";
     os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
@@ -50,6 +51,11 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
 
 	os << "use_coinc          = " << std::boolalpha << c.use_coinc << "\n";
 	os << "coinc_win_us       = " << c.coinc_win_us << "\n";
+	os << "coinc_seed_pe_min  = " << c.coinc_seed_pe_min << "\n";
+
+	os << "debug              = " << c.debug << "\n";
+	os << "debug_window_index = " << c.debug_window_index << "\n";
+	os << "debug_segment_id   = " << c.debug_segment_id << "\n";
 
     return os;
 }
@@ -140,7 +146,7 @@ static void plot_fit_window(const std::string& out_png,
 	delete c;
 }
 
-static void plot_outlier_overlay(const OutlierRecord& r, const string& out_dir, const string seg) {
+static void plot_outlier_overlay(int run_number, const OutlierRecord& r, const string& out_dir, const string seg) {
 	const int N = (int)r.hist.size();
 	const double bw = r.binWidthUs;
 
@@ -185,7 +191,7 @@ static void plot_outlier_overlay(const OutlierRecord& r, const string& out_dir, 
     L.AddEntry(&hExp,"PDF","l");
     L.Draw();
 
-    std::string base = out_dir + "segment_" + seg + "_outlier_" + std::to_string(r.windowIndex);
+    std::string base = out_dir + std::to_string(run_number) + "_segment_" + seg + "_outlier_" + std::to_string(r.windowIndex);
     c.SaveAs((base+".png").c_str());
 }
 
@@ -258,7 +264,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 
 			const auto& bad = fitter.getOutliers();
 			for (const auto& r : bad) {
-				plot_outlier_overlay(r, base, segment_labels[seg]);
+				plot_outlier_overlay((int)params["run_number"], r, base, segment_labels[seg]);
 			}
 		}
 

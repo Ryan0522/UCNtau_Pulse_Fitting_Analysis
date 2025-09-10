@@ -39,7 +39,7 @@ class Pulse_Fitting {
         void setMinGapUs(double mg_us) { if (mg_us >= 0) minGap_us_ = mg_us; }
         void setSegmentId(int seg) { segmentId_ = seg; }
         void setConfigKnobs(double shift_us, double seed_pe_default, double gradient_threshold, int guard_bin) {
-            shiftUs_ = shift_us; seedPE_ = seed_pe_default; gradThr_ = gradient_threshold; guardBin_ = std::max(0, guard_bin);
+            shiftUs_ = shift_us; seedPE_ = seed_pe_default; gradThr_ = gradient_threshold; guardBin_ = use_coinc_ ? 0 : std::max(0, guard_bin);
         }
 
         template <class Cfg>
@@ -54,9 +54,17 @@ class Pulse_Fitting {
             finePreBins_ = (int)std::llround(shiftUs_ / std::max(1e-12, fineBinWidth_us_));
             use_coinc_ = c.use_coinc;
             coinc_win_us_ = c.coinc_win_us;
+            coinc_seed_pe_min_ = c.coinc_seed_pe_min;
+            cluster_close_us_ = c.cluster_close_us;
             
-            seeding_window_ = c.seeding_window;
+            seeding_window_us_ = c.seeding_window_us;
             pe_min_thresh_ = c.pe_min_thresh;
+
+            if (c.debug) {
+                debug_ = true;
+                debug_window_index_ = c.debug_window_index;
+                debug_segment_id_ = c.debug_segment_id;
+            }
         }
 
         double shift_us() const { return shiftUs_; }
@@ -115,17 +123,22 @@ class Pulse_Fitting {
         double shiftUs_ = 5.0;
         double seedPE_ = 20.0;
         double gradThr_ = 2.0;
-        int guardBin_ = 1;
+        int guardBin_ = 0;
         int preBins_;
         int finePreBins_;
+        double cluster_close_us_;
 
-        int seeding_window_ = 5;
+        double seeding_window_us_ = 2.0;
         double pe_min_thresh_ = 5.0;
 
         bool captureOutliers_ = false;
         int outlierMinObs_ = 60;
         double outlierRatioLow_ = 0.8;
         std::vector<OutlierRecord> outliers_;
+
+        bool debug_ = false;
+        int debug_window_index_ = -1;
+        int debug_segment_id_ = -1;
         // == end NEW ==
 
         std::map<std::pair<int, double>, std::vector<std::vector<double>>> pdfCache_; // keyed by (nbins, binWidth)
@@ -162,6 +175,7 @@ class Pulse_Fitting {
 
         bool use_coinc_;
         double coinc_win_us_;
+        int coinc_seed_pe_min_;
 
         // === HELPER METHODS === //
 

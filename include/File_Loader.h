@@ -36,7 +36,7 @@ typedef struct
     int min_gap_us; // default 10 
     std::string pdf_csv_path; // default "./config/all_tail_response.csv"
 
-    int seeding_window;
+    double seeding_window_us; // default 2.0
     double pe_min_thresh;
 
     json runinfo_json;
@@ -55,9 +55,15 @@ typedef struct
     double seed_pe_default; // default 20.0 (default PE for the first pulse in each valid window)
     double gradient_threshold; // default 2.0 (findGradientPeaks threshold factor)
     int guard_bin; // default 1 (exclude extra peaks near the first pulse)
+    double cluster_close_us;
 
     bool use_coinc;
     double coinc_win_us;
+    int coinc_seed_pe_min;
+
+    bool debug;
+    int debug_window_index;
+    int debug_segment_id;
 } Config;
 
 using EventList = std::vector<event>;

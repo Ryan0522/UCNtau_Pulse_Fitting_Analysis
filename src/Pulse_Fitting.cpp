@@ -376,9 +376,11 @@ vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, do
 
     auto it0 = std::lower_bound(peTimes_us_.begin(), peTimes_us_.end(), startUs);
     int i0 = (int)std::distance(peTimes_us_.begin(), it0);
+    double prev_time = 0.0; // us
 
     for (int i = i0; i < N; ++i) {
         const double t0 = peTimes_us_[i];
+        if (t0 < prev_time) continue; // skip hits that are too close to previous seed
         if (t0 >= endUs) break;
         const int ch0 = peChans_[i];
 
@@ -394,8 +396,11 @@ vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, do
         }
 
         const int seed_idx = pre_bins + (int)std::floor((t0 - startUs) / binWidthUs);
-        const bool accepted = (armed && total >= 2);
-        if (accepted) seeds.push_back(seed_idx);
+        const bool accepted = (armed && total >= coinc_seed_pe_min_);
+        if (accepted) {
+            seeds.push_back(seed_idx);
+            prev_time = t0 + seeding_window_us_; // us
+        }
     }
 
     std::sort(seeds.begin(), seeds.end());
@@ -413,7 +418,10 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth_us)); // Since PDF is shifted by +5 us
     std::vector<int> peaks;
 
-    const bool dbg = (curWindowIndex_ == 1779 || curWindowIndex_ == 1147) && segmentId_ == 12;
+    const bool dbg = curWindowIndex_ == debug_window_index_ && segmentId_ == debug_segment_id_ && debug_;
+
+    vector<double> peGuess;
+    vector<double> dtGuess;
 
     if (use_coinc_) {
         const double startUs = curWindowStartUs_;
@@ -430,13 +438,6 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
                     << " nbins=" << xCenters.size()
                     << "\n";
 
-            std::cerr << "  xCenters: ";
-            for (auto& b : xCenters) std::cerr << b << ' ';
-            std::cerr << "\n";  
-            std::cerr << "  hist: ";
-            for (auto& b : hist) std::cerr << b << ' ';
-            std::cerr << "\n";     
-            
             std::cerr << "  [GRAD] seed bins: ";
             for (int b : dbg_grad_peaks) std::cerr << b << ' ';
             std::cerr << "\n";
@@ -446,13 +447,14 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         }
     } else {
         peaks = findGradientPeaks(hist, gradThr_);
+        peGuess.push_back(seedPE_);
+        dtGuess.push_back(0.0);
     }
 
-    vector<double> peGuess = { seedPE_ };
-    vector<double> dtGuess = { 0.0 };
-
     for (int p : peaks) {
-        if (p < pre_bins + guardBin_) continue;
+        if (p < pre_bins + guardBin_) {
+            continue;
+        };
         int idx = p - pre_bins;
 
         if (dbg) {
@@ -461,11 +463,11 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
         if (idx < 0 || idx > (int)hist.size()) continue;
 
-        int end = min(p + seeding_window_, static_cast<int>(hist.size())); // p here not idx because there are pre-bins
+        int end = min(p + (int)std::ceil(seeding_window_us_ / binWidth_us) + 1, static_cast<int>(hist.size())); // p here not idx because there are pre-bins, +1 because accumulate is exclusive at the end
         int sum = accumulate(hist.begin() + p, hist.begin() + end, 0); // p here not idx because there are pre-bins
 
         if (dbg) {
-            std::cerr << "    [PEAK] sum from bin " << idx << " to " << end - 1 << " = " << sum << "\n";
+            std::cerr << "    [PEAK] sum from bin " << p << " to " << end - 1 << " = " << sum << "\n";
         }
 
         if (sum >= pe_min_thresh_) {
@@ -486,12 +488,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     
     if (dbg) {
-        std::cerr << "  [INIT] raw pe/dt guesses (size=" << peGuess.size() << "): ";
-        for (size_t i=0;i<peGuess.size();++i) std::cerr << "(" << peGuess[i] << "," << dtGuess[i] << ") ";
-        std::cerr << "\n";
-
-        std::cerr << "  [INIT] after threshold pe/dt (size=" << newPE.size() << "): ";
-        for (size_t i=0;i<newPE.size();++i) std::cerr << "(" << newPE[i] << "," << newDT[i] << ") ";
+        std::cerr << "  [INIT] raw pe/dt_bin/dt_us guesses (size=" << peGuess.size() << "): ";
+        for (size_t i=0;i<peGuess.size();++i) std::cerr << "(" << peGuess[i] << "," << dtGuess[i] << "," << dtGuess[i] / binWidth_us << ") ";
         std::cerr << "\n";
     }
 
@@ -516,30 +514,74 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     for (size_t i=0;i<newPE.size();++i) seeds.emplace_back(newDT[i], newPE[i]);
     std::sort(seeds.begin(), seeds.end(), [](auto a, auto b){ return a.first < b.first; });
 
-    const int closeBins = (int)std::llround(5.0 / (binWidth_us + 1e-9)); // within 5 us
+    const int closeBins = (int)std::llround(cluster_close_us_ / (binWidth_us + 1e-9)); // within 5 us
     auto clusters = cluster_seeds(seeds, closeBins);
 
     KSelectOptions kopt;
     kopt.useBIC = false;
     kopt.maxEval = 200;
 
+    size_t ci = 0;
     std::vector<double> chosenPEs, chosenDTs;
+    const int pad_bins = std::max(1, (int)std::llround(2.0 / (binWidth_us + 1e-12))); // pad by 2 us on each side
+
     for (const auto& cl : clusters) {
+        if (dbg) {
+            std::cerr << "\n[CLUSTER] #" << ci << "  size=" << cl.size() << "\n";
+            std::cerr << "  initial seeds (dt, pe): ";
+            for (const auto& s : cl) std::cerr << "(" << s.first << ", " << s.second << ") ";
+            std::cerr << "\n";
+        }
+
+        const double cmin = std::max(dtMin, cl.front().first - pad_bins);
+        const double cmax = std::min(dtMax, cl.back().first + pad_bins);
+
         if (cl.size() == 1) {
-            chosenPEs.push_back(std::max(1.0, cl[0].second));
-            chosenDTs.push_back(std::clamp(cl[0].first, dtMin, dtMax));
+            const double pe_final = std::max(1.0, cl[0].second);
+            const double dt_final = std::clamp(cl[0].first, cmin, cmax);
+
+            chosenPEs.push_back(pe_final);
+            chosenDTs.push_back(dt_final);
+            if (dbg) {
+                std::cerr << "  [FINAL] singleton -> (dt, pe) = ("
+                        << dt_final << ", " << pe_final << ")\n";
+            }
+            ++ci;
             continue;
         }
-        auto [best, kstart] = select_k_for_cluster(prob, cl, peMin, peMax, dtMin, dtMax, kopt);
+
+        auto [best, kstart] = select_k_for_cluster(prob, cl, peMin, peMax, cmin, cmax, kopt);
+        
         if (best.ok) {
             chosenPEs.insert(chosenPEs.end(), best.PEs.begin(), best.PEs.end());
             chosenDTs.insert(chosenDTs.end(), best.DTs.begin(), best.DTs.end());
+            if (dbg) {
+                std::cerr << "  [FINAL] fit OK   k=" << kstart
+                        << "  nll=" << best.nll
+                        << "  -> pulses:\n";
+                for (size_t i = 0; i < best.PEs.size(); ++i) {
+                    std::cerr << "    (" << best.DTs[i] << ", " << best.PEs[i] << ")\n";
+                }
+            }
         } else {
             double pe_sum=0, dtw=0;
             for (auto& p:cl){ pe_sum += p.second; dtw += p.first * p.second; }
-            chosenPEs.push_back(std::max(1.0, pe_sum));
-            chosenDTs.push_back(std::clamp(cl.front().first, dtMin, dtMax));
+            const double pe_final = std::max(1.0, pe_sum);
+            const double dt_final = std::clamp(cl.front().first, cmin, cmax);
+
+            chosenPEs.push_back(pe_final);
+            chosenDTs.push_back(dt_final);
+
+            if (dbg) {
+                const double dt_centroid = (pe_sum > 0.0) ? (dtw / pe_sum) : cl.front().first;
+                std::cerr << "  [FINAL] fallback (fit failed)\n"
+                        << "    pe_sum=" << pe_sum
+                        << "    dt_first=" << cl.front().first
+                        << "    dt_centroid=" << dt_centroid << " (not used)\n"
+                        << "    -> (dt, pe) = (" << dt_final << ", " << pe_final << ")\n";
+            }
         }
+        ++ci;
     }
     
     if (dbg) {

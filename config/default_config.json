@@ -13,21 +13,27 @@
     "minGap": 40,
     "pdf_csv_path": "./config/epoch_2_tail_response.csv",
 
-    "seeding_window": 5,
+    "seeding_window_us": 0.5,
     "pe_min_thresh": 5.0,
 
     "shift_us": 5.0,
     "seed_pe_default": 20.0,
     "gradient_threshold": 2.0,
     "guard_bin": 1,
+    "cluster_close_us": 3.0,
 
-    "plot_fits": true,
+    "plot_fits": false,
     "pileup_min_pulses": 2,
 
     "plot_outliers": true,
-    "outlier_min_obs": 120,
-    "outlier_ratio_low": 0.50,
+    "outlier_min_obs": 100,
+    "outlier_ratio_low": 0.70,
 
     "use_coinc": true,
-    "coinc_win_us": 0.1
+    "coinc_win_us": 0.1,
+    "coinc_seed_pe_min": 2,
+
+    "debug": false,
+    "debug_window_index": 804,
+    "debug_segment_id": 12
 }

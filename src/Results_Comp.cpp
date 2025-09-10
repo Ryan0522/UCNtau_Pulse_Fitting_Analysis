@@ -15,6 +15,7 @@
 #include <TGaxis.h>
 #include <TGraph.h>
 #include <TLine.h>
+#include <THStack.h>
 #include <filesystem>
 
 using namespace std;
@@ -144,28 +145,36 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
     for (const auto& w : ws_all) { mn = std::min(mn, w.negLogL); mx = std::max(mx, w.negLogL); }
     if (mx <= mn) mx = mn + 1.0;
 
-    TCanvas* c = new TCanvas("c_neglogL", "Negative Log-Likelihood", 1000, 650);
-    TH1D* h = new TH1D("h_neglog", "Negative Log-Likelihood; -logL; Windows", nbins, mn, mx);
-    for (const auto& w : ws_all) h->Fill(w.negLogL);
+    std::map<int, TH1D*> hmap;
+    auto mk = [&](int np) {
+        auto* h = new TH1D(Form("h_np_%d", np), ";-logL;Windows", nbins, mn, mx);
+        h->SetLineWidth(2);
+        return h;
+    };
+    for (const auto& w : ws_all) {
+        if (!hmap.count(w.nPulses)) hmap[w.nPulses] = mk(w.nPulses);
+        hmap[w.nPulses]->Fill(w.negLogL);
+    }
 
-    c->SetGrid();
-    h->SetLineWidth(2);
-    h->Draw("HIST");
-    c->Update();
-    c->SaveAs((out_png_prefix + "_neglogL_dist.png").c_str());
-    delete c;
+    std::vector<Color_t> cols = {kBlue+1, kRed+1, kGreen+2, kMagenta+1, kCyan+2, kOrange+7, kViolet+1, kSpring+1};
+    int ci = 0;
+    for (auto& kv : hmap) kv.second->SetLineColor(cols[ci++ % cols.size()]);
 
-    TCanvas* c_log = new TCanvas("c_neglogL_log", "Negative Log-Likelihood (log_)", 1000, 650);
-    TH1D* h_log = new TH1D("h_neglog_log", "Negative Log-Likelihood (log); -logL; Windows", nbins, mn, mx);
-    for (const auto& w : ws_all) h_log->Fill(w.negLogL);
+    THStack hs("hs", "NLL by # Pulses; -logL; Windows");
+    TLegend leg(0.65, 0.65, 0.88, 0.88); leg.SetBorderSize(0); leg.SetFillStyle(0);
+    for (auto& [np, h] : hmap) { hs.Add(h, "HIST"); leg.AddEntry(h, Form("%d pulses (n=%d)", np, (int)h->GetEntries()), "l"); }
 
-    c_log->SetGrid();
-    c_log->SetLogy(1);
-    h_log->SetLineWidth(2);
-    h_log->Draw("HIST");
-    c_log->Update();
-    c_log->SaveAs((out_png_prefix + "_neglogL_dist_log.png").c_str());
-    delete c_log;
+     // Linear
+    TCanvas c1("c1","",1100,700); c1.SetGrid();
+    hs.Draw("NOSTACK HIST"); leg.Draw(); c1.Update();
+    c1.SaveAs((out_png_prefix + "_nll_byNp.png").c_str());
+
+    // Log-y
+    TCanvas c2("c2","",1100,700); c2.SetGrid(); c2.SetLogy(1);
+    hs.Draw("NOSTACK HIST"); leg.Draw(); c2.Update();
+    c2.SaveAs((out_png_prefix + "_nll_byNp_log.png").c_str());
+
+    for (auto& kv : hmap) delete kv.second;
 }
 
 void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix)
