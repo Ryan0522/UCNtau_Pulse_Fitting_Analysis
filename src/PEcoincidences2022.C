@@ -19,6 +19,7 @@
 #include <TH1I.h>
 #include <numeric>
 #include <set>
+#include <limits>
 
 using json = nlohmann::json;
 using namespace std;
@@ -266,6 +267,10 @@ void getunloadsbackgrounds(CoincidenceList cl, string runnum, double avgkuval, d
     ofstream thisfile;
     string outputfile = "./output/coincidences/CoincRun" + runnum + "_" + to_string(threshold) + "PEthreshold.csv";
     thisfile.open(outputfile, fstream::app);
+
+	thisfile.setf(std::ios::fixed, std::ios::floatfield);
+	thisfile << std::setprecision(9);
+
     tcoinc->GetEntry(0);
     //cout << realtime << "????" << endl;
 	

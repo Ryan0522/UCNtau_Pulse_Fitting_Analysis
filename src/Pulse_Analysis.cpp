@@ -217,6 +217,13 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		cerr << "Error opening output file: " << pulses_file << ", or: " << windows_file << endl;
 		return;
 	}
+
+	out.setf(std::ios::fixed, std::ios::floatfield);
+	ws.setf(std::ios::fixed, std::ios::floatfield);
+
+	out << std::setprecision(9);
+	ws << std::setprecision(9);
+
 	out << "Segment, Time (s), PE, Window Width, isFineBinWidth, Event\n";
 	ws << "Segment,Window,Start,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
 

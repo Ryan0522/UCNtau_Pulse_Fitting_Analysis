@@ -193,7 +193,7 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
 
     TCanvas* c = new TCanvas("c_obs_pdf", "Observed vs PDF", 1000, 650);
     
-    c->SetLogx(1);
+    // c->SetLogx(1); c->SetLogy(1);
     
     TGraph* g = new TGraph();
     g->SetTitle("Observed vs PDF PE Counts;N_{obs};N_{PDF}");
@@ -217,6 +217,9 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
     // y=x reference line
     double lo = std::min((double)minObs, minExp);
     double hi = std::max((double)maxObs, maxExp);
+
+    hi = std::min(hi, 300.0); // cut-off
+
     TLine* diag = new TLine(lo, lo, hi, hi);
     diag->SetLineStyle(1);
     diag->SetLineColor(kRed+1);
@@ -570,7 +573,7 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             if (ww_max <= ww_min) ww_max = ww_min + 1.0;
             const int nbins = 50;
             for (size_t i=0;i<segs.size();++i) {
-                c->cd((int)i+1); gPad->SetGrid();
+                c->cd((int)i+1); gPad->SetGrid(); gPad->SetLogy(1);
                 const auto& seg = segs[i];
                 auto h_ww = new TH1D(("h_ww_"+seg).c_str(),
                                       ("Pulse Window Width (seg "+seg+");ww;Counts").c_str(),
