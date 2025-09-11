@@ -1,4 +1,4 @@
-# Ignore build artifacts
+gits# Ignore build artifacts
 *.o
 *.out
 *.exe
@@ -22,6 +22,8 @@ PEcoincidences2022
 *.slurm
 out/
 legacy/
+/output/graphs/epoch_2/comp_coinc/individual_run/
+/output/graphs/epoch_2/debug
 
 # VSCode settings (optional)
 .vscode/

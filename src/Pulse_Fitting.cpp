@@ -635,7 +635,17 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     vector<double> expected(hist.size(), 0.0);
     if (fixedExpected) {
-        for (size_t j = 0; j < expected.size(); ++j) expected[j] = std::max(0.0, (*fixedExpected)[j]);
+        const auto& fix = *fixedExpected;
+        for (size_t j = 0; j < expected.size(); ++j){
+            double v = (j < (int)fix.size() ? fix[j] : 0.0);
+            expected[j] = std::isfinite(v) && v >= 0 ? v : 0.0;
+            if (prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0 && prob.fit_bg) {
+                const double b = prob.bg_rate_hz * prob.bin_width_sec;
+                if (std::isfinite(b) && b > 0.0) {
+                    expected[j] += b;
+                }
+            }
+        }
     }
 
     for (size_t m = 0; m < fittedPEs.size(); ++m) {

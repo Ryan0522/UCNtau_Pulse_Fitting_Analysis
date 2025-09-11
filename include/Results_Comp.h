@@ -10,9 +10,9 @@
 using json = nlohmann::json;
 
 // PulseAnalysis_<run>.csv rows: Segment(string), Time(us)(double), PE(double)
-using PulseRow = std::tuple<std::string, double, double, double>; // (seg, time_us, pe, window_width)
+using PulseRow = std::tuple<std::string, double, double, double, bool, bool, int>; // (seg, time_us, pe, window_width, is_fineBin, is_Event, holding time)
 // Coincidence rows: segment(string), time(s)(double), N(int)
-using CoincRow = std::tuple<std::string, double, int>;    // (seg, time_s, pe)
+using CoincRow = std::tuple<std::string, double, int, bool, int>;    // (seg, time_s, pe, is_event, holding time)
 
 struct WindowRow {
     std::string segment;
@@ -25,8 +25,8 @@ struct WindowRow {
     double N_exp;
 };
 
-std::vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const std::string& output_folder);
-std::vector<CoincRow> load_coinc_results(int run_number, std::string epoch, const std::string& output_folder);
+std::vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const std::string& output_folder, const int hold_t);
+std::vector<CoincRow> load_coinc_results(int run_number, std::string epoch, const std::string& output_folder, const int hold_t);
 std::vector<WindowRow> load_window_stats(int run_number, std::string epoch, const std::string& output_folder);
 void plot_neglog_hist(const std::vector<WindowRow>& ws_all ,const std::string& out_png_prefix, int nbins = 100);
 void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix);
