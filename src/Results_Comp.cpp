@@ -218,8 +218,6 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
     double lo = std::min((double)minObs, minExp);
     double hi = std::max((double)maxObs, maxExp);
 
-    hi = std::min(hi, 300.0); // cut-off
-
     TLine* diag = new TLine(lo, lo, hi, hi);
     diag->SetLineStyle(1);
     diag->SetLineColor(kRed+1);
@@ -328,7 +326,7 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
                 h_ratio->SetBinError(b, 0.0);
             }
 
-            double rightMax = 3.0;
+            double rightMax = 1.3;
             double scale = (hLeft->GetMaximum() > 0.0) ? (hLeft->GetMaximum() / rightMax) : 1.0;
 
             TH1D* h_ratio_scaled = (TH1D*)h_ratio->Clone(("h_ratio_scaled_"+name_suffix).c_str());
@@ -343,7 +341,7 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             double xRight = gPad->GetUxmax();
             double yLow   = gPad->GetUymin();
             double yHigh  = gPad->GetUymax();
-            auto axis = new TGaxis(xRight, yLow, xRight, yHigh, 0.0, rightMax, 510, "+L");
+            auto axis = new TGaxis(xRight, yLow, xRight, yHigh, 0.9, rightMax, 510, "+L");
             axis->SetTitle("Pulse/Coinc");
             axis->SetTitleColor(kGreen+2);
             axis->SetLabelColor(kGreen+2);

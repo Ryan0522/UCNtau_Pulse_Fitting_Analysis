@@ -47,17 +47,23 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
     peBackgroundRate_ = std::max(0.0, backgroundTimes.size() / bg_duration_sec);
     fitting_bg_ = false;
 
-    const int MAX_ITERS = 3;
+    const int MAX_ITERS = 10;
+    const double tolRel = 1e-2;
+
     for (int it = 0; it < MAX_ITERS; ++it) {
         backgroundPulses_.clear();
         fitRegion(backgroundTimes, backgroundPulses_);
 
         double sumPE = 0.0;
         for (const auto& pr : backgroundPulses_) sumPE += std::get<1>(pr);
-        double rate_hat = (backgroundTimes.size() - sumPE) / bg_duration_sec;
-        peBackgroundRate_ = std::max(0.0, rate_hat);
+        
+        double rate_hat = std::max(0.0, (backgroundTimes.size() - sumPE) / bg_duration_sec);
+        double delta = std::fabs(rate_hat - peBackgroundRate_);
+        double tol = tolRel * std::max(1.0, peBackgroundRate_);
 
+        peBackgroundRate_ = rate_hat;
         fitting_bg_ = true;
+        if (delta < tol) break; // converged
     }
     
     fitRegion(signalTimes, signalPulses_); // parse windows, fit pulses
@@ -272,7 +278,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
                                         const vector<double>& DTs,
                                         const vector<vector<double>>& look) {
                 vector<vector<double>> comps;
-                const double bg = peBackgroundRate_ * binWidth_us * 1e-6;
+                const double bg = peBackgroundRate_ * binWidth_us * 1e-6; // pe bg rate is in unit of s
                 comps.reserve(PEs.size());
                 vector<double> total(hist.size(), 0.0);
                 for (size_t m = 0; m < PEs.size(); ++m) {
@@ -284,7 +290,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
                         double val = PEs[m] * row[j]; // density -> mass distribution (Sept 1, 2025)
                         comp[j] = val;
                         total[j] += val;
-                        total[j] += bg;
+                        if (m == 0) total[j] += bg;
                     }
                     comps.push_back(std::move(comp));
                 }
@@ -313,7 +319,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         for (size_t k = 0; k < fittedPEs.size(); ++k) {
             int dt_bins = round_to_index(fittedDTs[k], (int)xCenters.size() - 1);
             dt_bins = std::max(0, std::min(dt_bins, (int)xCenters.size() - 1)); // FIX
-            double pulse_time_us = startTime + dt_bins * binWidth_us + shiftUs_; // +5us correction
+            double pulse_time_us = startTime + dt_bins * binWidth_us; // +5us correction
             output.emplace_back(pulse_time_us, fittedPEs[k], windowIndex, windowWidth, fittedPEs.size() > 1, binWidth_us == fineBinWidth_us_); // store result
             // cout << (double)j/(double)N << ", " << pulse_time_us / 1e6 << ", " << fittedPEs[k] << ", " << endl;
             carryPulses_.emplace_back(pulse_time_us, fittedPEs[k]); // FIX
@@ -330,7 +336,7 @@ vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xC
     const int length = static_cast<int>(xCenters.size());
     const double binWidth_us = xCenters[1] - xCenters[0];
 
-    auto key = std::make_pair(length, std::round(binWidth_us * 1e6) / 1e6);
+    auto key = std::make_pair(length, std::round(binWidth_us * 100.0) / 100.0); // PDF is 0.01us in resolution
     auto it = pdfCache_.find(key);
     if (it != pdfCache_.end()) return it->second;
 
@@ -376,11 +382,11 @@ vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, do
 
     auto it0 = std::lower_bound(peTimes_us_.begin(), peTimes_us_.end(), startUs);
     int i0 = (int)std::distance(peTimes_us_.begin(), it0);
-    double prev_time = 0.0; // us
+    double prev_time_us = 0.0; // us
 
     for (int i = i0; i < N; ++i) {
         const double t0 = peTimes_us_[i];
-        if (t0 < prev_time) continue; // skip hits that are too close to previous seed
+        if (t0 < prev_time_us) continue; // skip hits that are too close to previous seed
         if (t0 >= endUs) break;
         const int ch0 = peChans_[i];
 
@@ -399,7 +405,7 @@ vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, do
         const bool accepted = (armed && total >= coinc_seed_pe_min_);
         if (accepted) {
             seeds.push_back(seed_idx);
-            prev_time = t0 + seeding_window_us_; // us
+            prev_time_us = t0 + seeding_window_us_; // us
         }
     }
 
@@ -423,6 +429,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     vector<double> peGuess;
     vector<double> dtGuess;
 
+    const int W = std::max(1, (int)std::ceil(seeding_window_us_ / (binWidth_us + 1e-12)));
+
     if (use_coinc_) {
         const double startUs = curWindowStartUs_;
         const double endUs = curWindowStartUs_ + std::max(0, (int)xCenters.size() - pre_bins) * binWidth_us;
@@ -437,6 +445,14 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
                     << " pre_bins=" << pre_bins
                     << " nbins=" << xCenters.size()
                     << "\n";
+
+            std::cerr << "[";
+            for (auto b : xCenters) std::cerr << b << ' ';
+            std::cerr << "]\n";
+
+            std::cerr << "[";
+            for (auto b : hist) std::cerr << b << ' ';
+            std::cerr << "]\n";
 
             std::cerr << "  [GRAD] seed bins: ";
             for (int b : dbg_grad_peaks) std::cerr << b << ' ';
@@ -461,38 +477,28 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             std::cerr << "  [PEAK] raw peak at bin " << p << " -> dt guess at bin " << idx << "\n";
         }
 
-        if (idx < 0 || idx > (int)hist.size()) continue;
+        if (idx < 0 || idx >= (int)hist.size()) continue;
 
-        int end = min(p + (int)std::ceil(seeding_window_us_ / binWidth_us) + 1, static_cast<int>(hist.size())); // p here not idx because there are pre-bins, +1 because accumulate is exclusive at the end
+        int end = min(p + W + 1, static_cast<int>(hist.size())); // p here not idx because there are pre-bins, +1 because accumulate is exclusive at the end
         int sum = accumulate(hist.begin() + p, hist.begin() + end, 0); // p here not idx because there are pre-bins
 
         if (dbg) {
             std::cerr << "    [PEAK] sum from bin " << p << " to " << end - 1 << " = " << sum << "\n";
         }
 
-        if (sum >= pe_min_thresh_) {
+        if (sum >= static_cast<int>(max(1.0, std::ceil(pe_min_thresh_ / 2.0)))) {
             peGuess.push_back(sum);
             dtGuess.push_back(idx);
         }
     }
 
-    vector<double> newPE, newDT;
-    for (size_t i = 0; i < peGuess.size(); ++i) {
-        if (peGuess[i] >= 5) {
-            newPE.push_back(peGuess[i]);
-            newDT.push_back(dtGuess[i]);
-        }
-    }
-
-    if (newPE.empty()) return false;
-
+    if (peGuess.empty()) return false;
     
     if (dbg) {
         std::cerr << "  [INIT] raw pe/dt_bin/dt_us guesses (size=" << peGuess.size() << "): ";
-        for (size_t i=0;i<peGuess.size();++i) std::cerr << "(" << peGuess[i] << "," << dtGuess[i] << "," << dtGuess[i] / binWidth_us << ") ";
+        for (size_t i=0;i<peGuess.size();++i) std::cerr << "(" << peGuess[i] << "," << dtGuess[i] << "," << dtGuess[i] * binWidth_us << ") ";
         std::cerr << "\n";
     }
-
 
     FitProblem prob;
     prob.observed = &hist;
@@ -510,15 +516,16 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     double dtMin = 0.0, dtMax = (double)xCenters.size() - 1.000001;
 
     std::vector<std::pair<double, double>> seeds;
-    seeds.reserve(newPE.size());
-    for (size_t i=0;i<newPE.size();++i) seeds.emplace_back(newDT[i], newPE[i]);
+    seeds.reserve(peGuess.size());
+    for (size_t i=0;i<peGuess.size();++i) seeds.emplace_back(dtGuess[i], peGuess[i]);
     std::sort(seeds.begin(), seeds.end(), [](auto a, auto b){ return a.first < b.first; });
 
-    const int closeBins = (int)std::llround(cluster_close_us_ / (binWidth_us + 1e-9)); // within 5 us
-    auto clusters = cluster_seeds(seeds, closeBins);
+    auto clusters = cluster_seeds(seeds, binWidth_us, cluster_close_us_);
 
-    KSelectOptions kopt;
-    kopt.useBIC = false;
+    kSelectOptions kopt;
+    kopt.criterion = kSelectOptions::Criterion::AICc;
+    kopt.use_local_T = true;
+    kopt.lrt_min_delta = 6.0; // set 0.0 to disable
     kopt.maxEval = 200;
 
     size_t ci = 0;
@@ -617,9 +624,20 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     for (int it=0; it<3; ++it) {
         auto r2 = fit_n_pulses_bobyqa(prob, (int)r.PEs.size(), r.PEs, r.DTs, peMin, peMax, dtMin, dtMax, 200);
+
+        if (dbg) {
+            if (r2.ok) {
+                std::cerr << "  [FINAL LOOPING] after fit_n_pulses_bobyqa iteration " << it << ": ";
+                for (size_t i=0;i<r2.PEs.size();++i) std::cerr << "(" << r2.PEs[i] << "," << r2.DTs[i] << ") ";
+                std::cerr << "\n";
+            } else {
+                std::cerr << "  [FINAL LOOPING] fit_global_from_selections failed\n";
+            }
+        }
+
         if (!r2.ok) break;
         auto pr2 = prune(r2.PEs, r2.DTs);
-        if ((int)pr2.first.size() == (int)r.PEs.size()) { r = r2; break; } // 收斂
+        if ((int)pr2.first.size() == (int)r.PEs.size()) { r = r2; break; }
         if (pr2.first.empty()) return false;
         r.PEs.swap(pr2.first); r.DTs.swap(pr2.second);
     }

@@ -56,6 +56,7 @@ class Pulse_Fitting {
             coinc_win_us_ = c.coinc_win_us;
             coinc_seed_pe_min_ = c.coinc_seed_pe_min;
             cluster_close_us_ = c.cluster_close_us;
+            guardBin_ = use_coinc_ ? 0 : guardBin_;
             
             seeding_window_us_ = c.seeding_window_us;
             pe_min_thresh_ = c.pe_min_thresh;

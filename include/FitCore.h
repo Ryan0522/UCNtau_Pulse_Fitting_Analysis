@@ -2,6 +2,15 @@
 #include <vector>
 #include <utility>
 
+struct kSelectOptions {
+    enum class Criterion { NLL, AIC, AICc, BIC, SoftBIC };
+    Criterion criterion = Criterion::AICc;
+    double use_bic_lambda = 0.7;
+    bool use_local_T = true;
+    double lrt_min_delta = 0.0;
+    int maxEval = 200;
+};
+
 struct FitProblem {
     const std::vector<int>* observed;
     const std::vector<std::vector<double>>* pdfLookup;
@@ -32,18 +41,13 @@ FitResult fit_n_pulses_bobyqa(
     int maxEval = 200
 );
 
-struct KSelectOptions {
-    bool useBIC = false;
-    int maxEval = 200;
-};
-
-std::vector<std::vector<std::pair<double, double>>> cluster_seeds(const std::vector<std::pair<double, double>>& seeds_sorted_by_dt, int closeBins);
+std::vector<std::vector<std::pair<double, double>>> cluster_seeds(const std::vector<std::pair<double, double>>& seeds_sorted_by_dt, double binWidth_us, double cluster_close_us);
 
 std::pair<FitResult,int> select_k_for_cluster(
     const FitProblem& prob,
     const std::vector<std::pair<double,double>>& cluster,
     double peMin, double peMax, double dtMin, double dtMax,
-    const KSelectOptions& opt
+    const kSelectOptions& opt
 );
 
 FitResult fit_global_from_selections(

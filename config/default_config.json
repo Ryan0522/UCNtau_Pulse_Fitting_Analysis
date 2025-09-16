@@ -33,7 +33,7 @@
     "coinc_win_us": 0.1,
     "coinc_seed_pe_min": 2,
 
-    "debug": false,
-    "debug_window_index": 804,
-    "debug_segment_id": 12
+    "debug": true,
+    "debug_window_index": 527,
+    "debug_segment_id": 56
 }

@@ -8,7 +8,7 @@
 #include <algorithm>
 
 std::vector<double> g_log_fact = [](){
-    const int MAX_K = 1000;
+    const int MAX_K = 5000;
     std::vector<double> table(MAX_K);
     for (int k = 0; k < MAX_K; ++k) {
         table[k] = std::lgamma(k + 1.0);
@@ -219,12 +219,12 @@ FitResult fit_n_pulses_bobyqa(
 }
 
 std::vector<std::vector<std::pair<double, double>>> 
-cluster_seeds(const std::vector<std::pair<double,double>>& s, int closeBins) {
+cluster_seeds(const std::vector<std::pair<double,double>>& s, double binWidth_us, double cluster_close_us) {
     std::vector<std::vector<std::pair<double,double>>> clusters;
     if (s.empty()) return clusters;
     std::vector<std::pair<double,double>> cur; cur.push_back(s[0]);
     for (size_t i=1;i<s.size();++i){
-        if (std::fabs(s[i].first - s[i-1].first) <= closeBins) cur.push_back(s[i]);
+        if (std::fabs((s[i].first - s[i-1].first) * binWidth_us) <= cluster_close_us) cur.push_back(s[i]);
         else { clusters.push_back(cur); cur.clear(); cur.push_back(s[i]); }
     }
     clusters.push_back(cur);
@@ -266,16 +266,60 @@ static void init_k_weighted(
 std::pair<FitResult,int> select_k_for_cluster(
     const FitProblem& prob, const std::vector<std::pair<double,double>>& cl,
     double peMin, double peMax, double dtMin, double dtMax,
-    const KSelectOptions& opt)
+    const kSelectOptions& opt)
 {
     FitResult best; int best_k = 0;
     const int m = (int)cl.size();
+
+    auto score = [&](double nll, int k, int T_eff) {
+        const int p = 2*k; // # parameters, PE and DT per pulse
+        switch (opt.criterion) {
+            case kSelectOptions::Criterion::NLL:
+                return nll;
+            case kSelectOptions::Criterion::AIC:
+                return 2.0*nll + 2.0*p;
+            case kSelectOptions::Criterion::AICc: {
+                // fallback to AIC when T_eff too small
+                if (T_eff <= p + 1) return 2.0*nll + 2.0*p;
+                return 2.0*nll + 2.0*p + (2.0*p*(p+1)) / (T_eff - p - 1);
+            }
+            case kSelectOptions::Criterion::BIC:
+                return 2.0*nll + p*std::log(std::max(1, T_eff));
+            case kSelectOptions::Criterion::SoftBIC:
+                return 2.0*nll + opt.use_bic_lambda * p*std::log(std::max(1, T_eff));
+        }
+        return std::numeric_limits<double>::infinity();
+    };
+
+    double prev_nll = std::numeric_limits<double>::infinity();
+    bool have_prev = false;
+
     for (int k=1;k<=m;++k){
-        std::vector<double> pe0, dt0; init_k_weighted(cl, k, pe0, dt0);
+        std::vector<double> pe0, dt0; 
+        init_k_weighted(cl, k, pe0, dt0);
+        const int T_eff = opt.use_local_T 
+            ? std::max(1, (int)std::floor(dtMax) - (int)std::ceil(dtMin) + 1)
+            : std::max(1, prob.nTime);
+
         FitResult r = fit_n_pulses_bobyqa(prob, k, pe0, dt0, peMin, peMax, dtMin, dtMax, opt.maxEval);
         if (!r.ok) continue;
-        double s = opt.useBIC ? (2.0*r.nll + (2*k)*std::log(std::max(1, prob.nTime))) : r.nll;
-        double s_best = best.ok ? (opt.useBIC ? (2.0*best.nll + (2*best_k)*std::log(std::max(1, prob.nTime))) : best.nll) : std::numeric_limits<double>::infinity();
+        
+        bool pass_lrt = true;
+        if (opt.lrt_min_delta > 0.0 && have_prev) {
+            const double delta = 2.0*(prev_nll - r.nll); // improvement
+            pass_lrt = (delta >= opt.lrt_min_delta);
+        }
+        
+        prev_nll = r.nll;
+        have_prev = true;
+
+        if (!pass_lrt) continue;
+
+        const double s = score(r.nll, k, T_eff);
+        const double s_best = best.ok 
+            ? score(best.nll, best_k, T_eff) 
+            : std::numeric_limits<double>::infinity();
+
         if (!best.ok || s < s_best) { best=r; best_k=k; }
     }
     return {best, best_k};
