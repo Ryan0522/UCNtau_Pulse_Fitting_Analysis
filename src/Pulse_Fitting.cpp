@@ -486,7 +486,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             std::cerr << "    [PEAK] sum from bin " << p << " to " << end - 1 << " = " << sum << "\n";
         }
 
-        if (sum >= static_cast<int>(max(1.0, std::ceil(pe_min_thresh_ / 2.0)))) {
+        // if (sum >= static_cast<int>(max(1.0, std::ceil(pe_min_thresh_ / 2.0)))) {
+        if (sum >= (int)pe_min_thresh_) {
             peGuess.push_back(sum);
             dtGuess.push_back(idx);
         }
@@ -557,9 +558,25 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             continue;
         }
 
-        auto [best, kstart] = select_k_for_cluster(prob, cl, peMin, peMax, cmin, cmax, kopt);
+        // const int t0 = (int)std::ceil(cmin);
+        // const int t1 = (int)std::floor(cmax);
+        // FitProblem subprob = make_subproblem(prob, t0, t1);
+        
+        // std::vector<std::pair<double,double>> cl_local; cl_local.reserve(cl.size());
+        // for (auto& s : cl) cl_local.push_back({ s.first - t0, s.second });  
+
+        // const double dtMin_loc = 0.0; const double dtMax_loc = (double)(t1 - t0);
+
+        // auto [best, kstart] = select_k_for_cluster(
+        //     subprob, cl_local, peMin, peMax, dtMin_loc, dtMax_loc, kopt
+        // );
+
+        auto [best, kstart] = select_k_for_cluster(
+            prob, cl, peMin, peMax, dtMin, dtMax, kopt
+        );
         
         if (best.ok) {
+            // for (auto& d : best.DTs) d += t0;
             chosenPEs.insert(chosenPEs.end(), best.PEs.begin(), best.PEs.end());
             chosenDTs.insert(chosenDTs.end(), best.DTs.begin(), best.DTs.end());
             if (dbg) {

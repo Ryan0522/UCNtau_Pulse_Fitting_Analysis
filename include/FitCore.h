@@ -41,6 +41,8 @@ FitResult fit_n_pulses_bobyqa(
     int maxEval = 200
 );
 
+FitProblem make_subproblem(const FitProblem& prob, int t0, int t1);
+
 std::vector<std::vector<std::pair<double, double>>> cluster_seeds(const std::vector<std::pair<double, double>>& seeds_sorted_by_dt, double binWidth_us, double cluster_close_us);
 
 std::pair<FitResult,int> select_k_for_cluster(

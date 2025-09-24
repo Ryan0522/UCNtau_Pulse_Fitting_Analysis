@@ -8,9 +8,9 @@
     "save_to_txt": false,
     "epoch": 2,
     
-    "binWidth": 0.25,
+    "binWidth": 0.5,
     "fineBinWidth": 0.01,
-    "minGap": 40,
+    "minGap": 20,
     "pdf_csv_path": "./config/epoch_2_tail_response.csv",
 
     "seeding_window_us": 0.5,
@@ -20,7 +20,7 @@
     "seed_pe_default": 20.0,
     "gradient_threshold": 2.0,
     "guard_bin": 1,
-    "cluster_close_us": 3.0,
+    "cluster_close_us": 5.0,
 
     "plot_fits": false,
     "pileup_min_pulses": 2,
@@ -30,10 +30,10 @@
     "outlier_ratio_low": 0.70,
 
     "use_coinc": true,
-    "coinc_win_us": 0.1,
+    "coinc_win_us": 0.05,
     "coinc_seed_pe_min": 2,
 
     "debug": true,
-    "debug_window_index": 527,
+    "debug_window_index": 760,
     "debug_segment_id": 56
 }

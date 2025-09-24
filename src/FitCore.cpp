@@ -113,6 +113,43 @@ static inline void dump_params_bounds(const std::vector<double>& params,
     std::cerr << "=== end dump ===\n\n";
 }
 
+FitProblem make_subproblem(const FitProblem& prob, int t0, int t1) {
+    const auto& y = *prob.observed;
+    const auto& LU = *prob.pdfLookup;
+    const int T = prob.nTime;
+
+    t0 = std::max(0, t0);
+    t1 = std::min(T-1, t1);
+    const int L = (t1 - t0 + 1);
+    if (L <= 0) return {}; // invalid
+
+    auto* y_slice = new std::vector<int>(y.begin() + t0, y.begin() + t1 + 1);
+    auto* LU_slice = new std::vector<std::vector<double>>(LU.size());
+    for (size_t r = 0; r < LU.size(); ++r) {
+        const auto& row = LU[r];
+        (*LU_slice)[r].assign(row.begin() + t0, row.begin() + t1 + 1);
+    }
+
+    const std::vector<double>* fix_ptr = nullptr;
+    auto* fix = new std::vector<double>();
+    const auto& F = *prob.fixedExpected;
+    const int Fn = (int)F.size();
+    const int a = std::min(std::max(0, t0), Fn);
+    const int b = std::min(std::max(0, t1+1), Fn);
+    fix->assign(F.begin() + a, F.begin() + b);
+    fix_ptr = fix;
+
+    FitProblem sub;
+    sub.observed      = y_slice;
+    sub.pdfLookup     = LU_slice;
+    sub.fixedExpected = fix_ptr;
+    sub.nTime         = L;
+    sub.bg_rate_hz    = prob.bg_rate_hz;
+    sub.bin_width_sec = prob.bin_width_sec;
+    sub.fit_bg        = prob.fit_bg;
+    return sub;
+}
+
 static double negLogL_core(const std::vector<double>& params,
                            const FitProblem& prob,
                            int nPulses)

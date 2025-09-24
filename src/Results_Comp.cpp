@@ -157,7 +157,7 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
 
     std::map<int, TH1D*> hmap;
     auto mk = [&](int np) {
-        auto* h = new TH1D(Form("h_np_%d", np), ";-logL;Windows", nbins, mn, mx);
+        auto* h = new TH1D(Form("h_np_%d", np), ";-logL;Event #", nbins, mn, mx);
         h->SetLineWidth(2);
         return h;
     };
@@ -170,7 +170,7 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
     int ci = 0;
     for (auto& kv : hmap) kv.second->SetLineColor(cols[ci++ % cols.size()]);
 
-    THStack hs("hs", "NLL by # Pulses; -logL; Windows");
+    THStack hs("hs", "NLL by # Pulses; -logL; Event #");
     TLegend leg(0.65, 0.65, 0.88, 0.88); leg.SetBorderSize(0); leg.SetFillStyle(0);
     for (auto& [np, h] : hmap) { hs.Add(h, "HIST"); leg.AddEntry(h, Form("%d pulses (n=%d)", np, (int)h->GetEntries()), "l"); }
 
