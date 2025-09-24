@@ -511,6 +511,9 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     prob.bg_rate_hz = peBackgroundRate_;
     prob.bin_width_sec = binWidth_us * 1e-6;
     prob.fit_bg = fitting_bg_;
+
+    prob.windowIndex = curWindowIndex_;
+    prob.segmentId = segmentId_;
     // --- end NEW (August 31, 2025) ---
 
     double peMin = 1.0, peMax = 300.0;
@@ -524,10 +527,13 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     auto clusters = cluster_seeds(seeds, binWidth_us, cluster_close_us_);
 
     kSelectOptions kopt;
-    kopt.criterion = kSelectOptions::Criterion::AICc;
-    kopt.use_local_T = true;
+    kopt.criterion = kSelectOptions::Criterion::SoftBIC;
+    kopt.use_local_T = false;
     kopt.lrt_min_delta = 6.0; // set 0.0 to disable
+    kopt.use_bic_lambda = 0.5;
     kopt.maxEval = 200;
+    kopt.debug = dbg;
+    kopt.dbg_window_index = curWindowIndex_;
 
     size_t ci = 0;
     std::vector<double> chosenPEs, chosenDTs;
@@ -541,70 +547,78 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             std::cerr << "\n";
         }
 
+        kopt.dbg_cluster_index = (int)ci;
         const double cmin = std::max(dtMin, cl.front().first - pad_bins);
         const double cmax = std::min(dtMax, cl.back().first + pad_bins);
+
+        const int t0 = (int)std::ceil(cmin);
+        const int t1 = (int)std::floor(cmax);
+
+        const int t0_global = t0; // Adding pre_bins in as PDF requires the flat region
+        const int t1_global = t1 + pre_bins; // Adding ending tail to it. 
+        auto sub_mc = make_subproblem_masscomp(prob, t0_global, t1_global);
+        FitProblem& subprob = sub_mc.prob;
+        const auto& frac = sub_mc.frac_in_slice;
+
+        if (dbg) {
+            std::cerr << "\n[CLUSTER] #" << ci << "  sub-histogram:\n";
+            std::cerr << "[";
+            for (auto b : *(subprob.observed)) std::cerr << b << ' ';
+            std::cerr << "]\n";
+        }
+
+        std::vector<std::pair<double, double>> cl_local;
+        cl_local.reserve(cl.size());
+        for (auto& s : cl) cl_local.push_back({ s.first - t0, s.second });
+
+        const double dtMin_loc = 0.0;
+        const double dtMax_loc = std::max(0.0, (double)(t1 - t0));
 
         if (cl.size() == 1) {
             const double pe_final = std::max(1.0, cl[0].second);
             const double dt_final = std::clamp(cl[0].first, cmin, cmax);
-
             chosenPEs.push_back(pe_final);
             chosenDTs.push_back(dt_final);
-            if (dbg) {
-                std::cerr << "  [FINAL] singleton -> (dt, pe) = ("
-                        << dt_final << ", " << pe_final << ")\n";
-            }
-            ++ci;
-            continue;
-        }
-
-        // const int t0 = (int)std::ceil(cmin);
-        // const int t1 = (int)std::floor(cmax);
-        // FitProblem subprob = make_subproblem(prob, t0, t1);
-        
-        // std::vector<std::pair<double,double>> cl_local; cl_local.reserve(cl.size());
-        // for (auto& s : cl) cl_local.push_back({ s.first - t0, s.second });  
-
-        // const double dtMin_loc = 0.0; const double dtMax_loc = (double)(t1 - t0);
-
-        // auto [best, kstart] = select_k_for_cluster(
-        //     subprob, cl_local, peMin, peMax, dtMin_loc, dtMax_loc, kopt
-        // );
-
-        auto [best, kstart] = select_k_for_cluster(
-            prob, cl, peMin, peMax, dtMin, dtMax, kopt
-        );
-        
-        if (best.ok) {
-            // for (auto& d : best.DTs) d += t0;
-            chosenPEs.insert(chosenPEs.end(), best.PEs.begin(), best.PEs.end());
-            chosenDTs.insert(chosenDTs.end(), best.DTs.begin(), best.DTs.end());
-            if (dbg) {
-                std::cerr << "  [FINAL] fit OK   k=" << kstart
-                        << "  nll=" << best.nll
-                        << "  -> pulses:\n";
-                for (size_t i = 0; i < best.PEs.size(); ++i) {
-                    std::cerr << "    (" << best.DTs[i] << ", " << best.PEs[i] << ")\n";
-                }
-            }
+            if (dbg) std::cerr << "  [FINAL] singleton -> (dt,pe)=("
+                            << dt_final << "," << pe_final << ")\n";
         } else {
-            double pe_sum=0, dtw=0;
-            for (auto& p:cl){ pe_sum += p.second; dtw += p.first * p.second; }
-            const double pe_final = std::max(1.0, pe_sum);
-            const double dt_final = std::clamp(cl.front().first, cmin, cmax);
+            auto [best, kstart] = select_k_for_cluster(
+                subprob, cl_local,
+                pe_min_thresh_, 300.0,
+                dtMin_loc, dtMax_loc,
+                kopt  
+            );
 
-            chosenPEs.push_back(pe_final);
-            chosenDTs.push_back(dt_final);
+            if (best.ok) {
+                for (size_t i = 0; i < best.PEs.size(); ++i) {
+                    double dt_loc = best.DTs[i];
+                    double f = frac_interp(frac, dt_loc);
+                    double pe_global = best.PEs[i];
+                    double dt_global = dt_loc + t0;
 
-            if (dbg) {
-                const double dt_centroid = (pe_sum > 0.0) ? (dtw / pe_sum) : cl.front().first;
-                std::cerr << "  [FINAL] fallback (fit failed)\n"
-                        << "    pe_sum=" << pe_sum
-                        << "    dt_first=" << cl.front().first
-                        << "    dt_centroid=" << dt_centroid << " (not used)\n"
-                        << "    -> (dt, pe) = (" << dt_final << ", " << pe_final << ")\n";
+                    chosenPEs.push_back(pe_global);
+                    chosenDTs.push_back(dt_global);
+                }
+
+                if (dbg) {
+                    std::cerr << "  [FINAL] fit OK (local) k=" << kstart
+                            << " nll=" << best.nll << "\n";
+                    for (size_t i = 0; i < best.PEs.size(); ++i)
+                        std::cerr << "    (" << best.DTs[i] << "," << best.PEs[i] << ")\n";
+                }
+            } else {
+                double pe_sum = 0, dtw = 0;
+                for (auto& p : cl) { pe_sum += p.second; dtw += p.first * p.second; }
+                const double pe_final = std::max(1.0, pe_sum);
+                const double dt_final = std::clamp(cl.front().first, cmin, cmax);
+                chosenPEs.push_back(pe_final);
+                chosenDTs.push_back(dt_final);
+                if (dbg) std::cerr << "  [FINAL] fallback (local fit failed) -> (dt,pe)=("
+                                    << dt_final << "," << pe_final << ")\n";
+            
             }
         }
+
         ++ci;
     }
     

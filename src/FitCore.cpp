@@ -38,6 +38,14 @@ static inline double poissonLogL(const std::vector<int>& k, const std::vector<do
     return logL;
 }
 
+static inline void dbg_print_vec(const char* tag, const std::vector<double>& v, int maxn = 16) {
+    std::cerr << "    " << tag << " [n=" << v.size() << "]: ";
+    int n = (int)v.size();
+    for (int i = 0; i < std::min(n, maxn); ++i) std::cerr << v[i] << (i+1<std::min(n,maxn) ? ' ' : '\0');
+    if (n > maxn) std::cerr << " ...";
+    std::cerr << "\n";
+}
+
 static inline void dump_params_bounds(const std::vector<double>& params,
                                 const std::vector<double>& lb,
                                 const std::vector<double>& ub,
@@ -147,7 +155,66 @@ FitProblem make_subproblem(const FitProblem& prob, int t0, int t1) {
     sub.bg_rate_hz    = prob.bg_rate_hz;
     sub.bin_width_sec = prob.bin_width_sec;
     sub.fit_bg        = prob.fit_bg;
+    sub.windowIndex   = prob.windowIndex;
+    sub.segmentId     = prob.segmentId;
     return sub;
+}
+
+SubproblemWithFrac make_subproblem_masscomp(const FitProblem& full, int t0, int t1) {
+    constexpr double EPS = 1e-12;
+
+    FitProblem sub = make_subproblem(full, t0, t1);
+
+    const int nDT_loc = (int)sub.pdfLookup->size();         // dt indices: 0..(t1-t0)
+    const int nT_loc  = (int)sub.nTime;
+
+    std::vector<double> frac(nDT_loc, 1.0);
+
+    for (int j = 0; j < nDT_loc; ++j) {
+        const int jg = j + t0; // global dt index
+
+        // Clamp in case of ragged edges
+        const auto& col_full  = (*full.pdfLookup)[std::max(0, std::min(jg, (int)full.pdfLookup->size() - 1))];
+        const auto& col_slice = (*sub.pdfLookup)[j];
+
+        double s_full  = 0.0; for (double v : col_full)  s_full  += v;
+        double s_slice = 0.0; for (double v : col_slice) s_slice += v;
+
+        s_full  = std::max(EPS, s_full);
+        s_slice = std::max(EPS, s_slice);
+
+        double f = s_slice / s_full;         // fraction of mass in the local slice
+        if (f < EPS) f = EPS;                // guard
+        if (f > 1.0) f = 1.0;                // numeric guard
+        frac[j] = f;
+    }
+
+    auto scaled_pdf = std::make_shared<std::vector<std::vector<double>>>(*sub.pdfLookup);
+    for (int j = 0; j < nDT_loc; ++j) {
+        const double s = 1.0 / std::max(EPS, frac[j]);
+        auto& col = (*scaled_pdf)[j];
+        for (double& v : col) v *= s;
+    }
+
+    sub.pdfLookup = scaled_pdf.get();
+
+    return SubproblemWithFrac{std::move(sub), std::move(frac), std::move(scaled_pdf)};
+}
+
+double frac_interp(const std::vector<double>& frac, double dt_local)
+{
+    if (frac.empty()) return 1.0;
+    const int n = (int)frac.size();
+    if (n == 1) return frac[0];
+
+    double x = dt_local;
+    if (x <= 0.0) return frac[0];
+    if (x >= n-1) return frac[n-1];
+
+    int i = (int)std::floor(x);
+    int j = i + 1;
+    double w = x - i;
+    return (1.0 - w) * frac[i] + w * frac[j];
 }
 
 static double negLogL_core(const std::vector<double>& params,
@@ -243,8 +310,10 @@ FitResult fit_n_pulses_bobyqa(
         nlopt::result result = opt.optimize(x, fmin);
     } catch (const std::exception& e) {
         dump_params_bounds(x, lb, ub, nPulses, prob, *prob.pdfLookup, "on-error");
-        std::cerr << "[NLopt] optimize() failed: " << e.what() << "\n";
-        throw std::runtime_error("Fatal NLopt failure, exiting.");
+        std::cerr << "[NLopt] optimize() failed in window "
+              << prob.windowIndex << " (segment " << prob.segmentId << "): "
+              << e.what() << "\n";
+        // throw std::runtime_error("Fatal NLopt failure, exiting.");
         return out;
     }
 
@@ -308,6 +377,20 @@ std::pair<FitResult,int> select_k_for_cluster(
     FitResult best; int best_k = 0;
     const int m = (int)cl.size();
 
+    if (opt.debug) {
+        std::cerr << "[kSel] win#" << opt.dbg_window_index
+                  << " cluster#" << opt.dbg_cluster_index
+                  << "  size=" << m
+                  << "  dt in [" << dtMin << "," << dtMax << "]"
+                  << "  pe in [" << peMin << "," << peMax << "]"
+                  << "  T_eff=" << (opt.use_local_T ? (int)std::floor(dtMax) - (int)std::ceil(dtMin) + 1
+                                                   : prob.nTime)
+                  << "\n";
+        std::cerr << "       seeds(dt,pe): ";
+        for (auto& s : cl) std::cerr << "(" << s.first << "," << s.second << ") ";
+        std::cerr << "\n";
+    }
+
     auto score = [&](double nll, int k, int T_eff) {
         const int p = 2*k; // # parameters, PE and DT per pulse
         switch (opt.criterion) {
@@ -338,12 +421,41 @@ std::pair<FitResult,int> select_k_for_cluster(
             ? std::max(1, (int)std::floor(dtMax) - (int)std::ceil(dtMin) + 1)
             : std::max(1, prob.nTime);
 
+        if (opt.debug) {
+            std::cerr << "  [kSel] try k=" << k << "  (T_eff=" << T_eff << ")\n";
+            dbg_print_vec("dt0", dt0);
+            dbg_print_vec("pe0", pe0);
+        }
+
         FitResult r = fit_n_pulses_bobyqa(prob, k, pe0, dt0, peMin, peMax, dtMin, dtMax, opt.maxEval);
-        if (!r.ok) continue;
+        
+        if (!r.ok) {
+            if (opt.debug) std::cerr << "    [kSel] fit failed @k=" << k << "\n";
+            continue;
+        }
+
+        if (opt.debug) {
+            // at-bounds flags
+            int pe_atU=0, dt_atL=0, dt_atU=0;
+            for (double v : r.PEs) if (std::abs(v - peMax) <= 1e-9*std::max(1.0,peMax)) ++pe_atU;
+            for (double d : r.DTs) {
+                if (std::abs(d - dtMin) <= 1e-9*std::max(1.0,std::abs(dtMin))) ++dt_atL;
+                if (std::abs(d - dtMax) <= 1e-9*std::max(1.0,std::abs(dtMax))) ++dt_atU;
+            }
+            std::cerr << "    [kSel] nll=" << r.nll
+                      << "  PEs_atUpper=" << pe_atU
+                      << "  DTs_atLower=" << dt_atL
+                      << "  DTs_atUpper=" << dt_atU << "\n";
+            dbg_print_vec("DT", r.DTs);
+            dbg_print_vec("PE", r.PEs);
+        }
         
         bool pass_lrt = true;
         if (opt.lrt_min_delta > 0.0 && have_prev) {
             const double delta = 2.0*(prev_nll - r.nll); // improvement
+            if (opt.debug) std::cerr << "    [kSel] LRT delta=" << delta
+                                     << "  min=" << opt.lrt_min_delta
+                                     << (delta >= opt.lrt_min_delta ? "  (keep)\n" : "  (reject)\n");
             pass_lrt = (delta >= opt.lrt_min_delta);
         }
         
@@ -358,6 +470,31 @@ std::pair<FitResult,int> select_k_for_cluster(
             : std::numeric_limits<double>::infinity();
 
         if (!best.ok || s < s_best) { best=r; best_k=k; }
+
+        if (opt.debug) {
+            const int p = 2 * T_eff;
+            const double T = (opt.use_local_T ? std::max(1, prob.nTime) : std::max(1, prob.nTime));
+            const double AIC  = r.nll + p;
+            const double AICc = r.nll + p + (p*(p+1)) / std::max(1.0, T - p - 1.0);
+            const double BIC  = r.nll + 0.5 * p * std::log(T);
+            const double SBIC = r.nll + 0.5 * opt.use_bic_lambda * p * std::log(T);
+            std::cerr << "    [kSel] k_eff=" << T_eff
+                    << "  NLL=" << r.nll
+                    << "  AIC=" << AIC
+                    << "  AICc=" << AICc
+                    << "  BIC=" << BIC
+                    << "  SoftBIC(λ=" << opt.use_bic_lambda << ")=" << SBIC << "\n";
+        }  
+    }
+
+    if (opt.debug) {
+        if (best.ok) {
+            std::cerr << "  [kSel] BEST k=" << best_k << "  nll=" << best.nll << "\n";
+            dbg_print_vec("DT*", best.DTs);
+            dbg_print_vec("PE*", best.PEs);
+        } else {
+            std::cerr << "  [kSel] no valid k found\n";
+        }
     }
     return {best, best_k};
 }

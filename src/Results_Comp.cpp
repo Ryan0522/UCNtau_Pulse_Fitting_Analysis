@@ -187,6 +187,152 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
     for (auto& kv : hmap) delete kv.second;
 }
 
+static void plot_time_ev_byNp(const std::vector<PulseRow>& pulses,
+                                      const std::vector<WindowRow>& ws_all,
+                                      const std::string& out_png_prefix,
+                                      const Config& cfg)
+{
+    using std::string; using std::vector; using std::map; using std::pair;
+
+    const std::map<int, double> HT_ANCHOR = {
+        {20, 410.0}, {50, 440.0}, {100, 490.0}, {200, 590.0}, {1550, 1940.0}
+    };
+    const std::vector<int> HTS = {20, 50, 100, 200, 1550};
+    auto anchor_for_ht = [&](int ht)->double { return HT_ANCHOR.at(ht); };
+
+    struct W { double start_s, end_s; int np; };
+    std::map<std::pair<std::string, int>, std::vector<W>> windows;
+
+    for (const auto& w : ws_all) {
+        for (int ht : HTS) {
+            double a = anchor_for_ht(ht);
+            if (w.start >= a && w.start < a + 60.0) {
+                windows[{w.segment, ht}].push_back({w.start, 0.0, w.nPulses});
+                break;
+            }
+        }
+    }
+
+    for (auto& kv : windows) {
+        auto& vec = kv.second;
+        std::sort(vec.begin(), vec.end(), [](const W& a, const W& b){ return a.start_s < b.start_s; });
+        int ht = kv.first.second;
+        double cap = anchor_for_ht(ht) + 60.0;
+        for (size_t i=0;i<vec.size();++i) {
+            double end = (i+1<vec.size()? vec[i+1].start_s : cap);
+            if (end <= vec[i].start_s)
+                end = std::nextafter(vec[i].start_s, std::numeric_limits<double>::infinity());
+            if (end > cap) end = cap;
+            vec[i].end_s = end;
+        }
+    }
+
+    const std::vector<std::string> segs = {"12","34","56","78"};
+    auto mk_time_hist = [&](const std::string& name)->TH1D* {
+        int nbins = (int)std::ceil(60.0 / cfg.bin_width_us);
+        auto* h = new TH1D(name.c_str(), ";Time since window start (s);Counts", nbins, 0.0, 60.0);
+        h->SetLineWidth(2);
+        return h;
+    };
+
+    // Prepare histograms (1,2,3,4,5+) per segment
+    std::map<std::string, TH1D*> h_np1, h_np2, h_np3, h_np4, h_np5p;
+    for (const auto& seg : segs) {
+        h_np1[seg]  = mk_time_hist("h_np1_"+seg);
+        h_np2[seg]  = mk_time_hist("h_np2_"+seg);
+        h_np3[seg]  = mk_time_hist("h_np3_"+seg);
+        h_np4[seg]  = mk_time_hist("h_np4_"+seg);
+        h_np5p[seg] = mk_time_hist("h_np5p_"+seg);
+    }
+
+    // Fill from EVENT pulses, aligned to their HT anchor
+    for (const auto& r : pulses) {
+        if (!std::get<5>(r)) continue;  // Event only
+        const std::string& seg = std::get<0>(r);
+        int ht = (int)std::get<6>(r);
+        auto itA = HT_ANCHOR.find(ht);
+        if (itA == HT_ANCHOR.end()) continue;
+
+        double t_abs = std::get<1>(r);
+        double t_rel = t_abs - itA->second;
+        if (t_rel < 0.0 || t_rel >= 60.0) continue;
+
+        // find window multiplicity
+        int np = 0;
+        auto key = std::make_pair(seg, ht);
+        auto itW = windows.find(key);
+        if (itW != windows.end()) {
+            const auto& vec = itW->second;
+            int L=0, R=(int)vec.size();
+            while (L < R) {
+                int M=(L+R)/2;
+                if (vec[M].start_s <= t_abs) L=M+1; else R=M;
+            }
+            int idx = L-1;
+            if (idx >= 0) {
+                const auto& w = vec[(size_t)idx];
+                if (t_abs >= w.start_s && t_abs < w.end_s) np = w.np;
+            }
+        }
+
+        if (np <= 1)      h_np1[seg]->Fill(t_rel);
+        else if (np == 2) h_np2[seg]->Fill(t_rel);
+        else if (np == 3) h_np3[seg]->Fill(t_rel);
+        else if (np == 4) h_np4[seg]->Fill(t_rel);
+        else              h_np5p[seg]->Fill(t_rel);
+    }
+
+    // Draw
+    TCanvas* c = new TCanvas("c_time_byNp_SUM", "Event time by #pulses (SUMMED)", 1200, 800);
+    c->Divide(2,2);
+    for (size_t i=0;i<segs.size();++i) {
+        c->cd((int)i+1); gPad->SetGrid();
+        auto seg = segs[i];
+        auto* h1 = h_np1[seg];
+        auto* h2 = h_np2[seg];
+        auto* h3 = h_np3[seg];
+        auto* h4 = h_np4[seg];
+        auto* h5 = h_np5p[seg];
+
+        double ymax = 1.0;
+        ymax = std::max(ymax, h1->GetMaximum());
+        ymax = std::max(ymax, h2->GetMaximum());
+        ymax = std::max(ymax, h3->GetMaximum());
+        ymax = std::max(ymax, h4->GetMaximum());
+        ymax = std::max(ymax, h5->GetMaximum());
+        h1->SetMaximum(ymax*1.2);
+
+        h1->SetLineColor(kBlue+1);
+        h2->SetLineColor(kRed+1);
+        h3->SetLineColor(kGreen+2);
+        h4->SetLineColor(kMagenta+1);
+        h5->SetLineColor(kCyan+2);
+
+        h1->Draw("HIST");
+        h2->Draw("HIST SAME");
+        h3->Draw("HIST SAME");
+        h4->Draw("HIST SAME");
+        h5->Draw("HIST SAME");
+
+        auto leg = new TLegend(0.60,0.72,0.88,0.90);
+        leg->SetBorderSize(0); leg->SetFillStyle(0);
+        leg->AddEntry(h1, "1 pulse", "l");
+        leg->AddEntry(h2, "2 pulses", "l");
+        leg->AddEntry(h3, "3 pulses", "l");
+        leg->AddEntry(h4, "4 pulses", "l");
+        leg->AddEntry(h5, "5+ pulses", "l");
+        leg->Draw();
+    }
+    c->SaveAs((out_png_prefix + "_Time_ev_byNp_SUM_rel.png").c_str());
+    delete c;
+
+    for (auto& kv : h_np1)  delete kv.second;
+    for (auto& kv : h_np2)  delete kv.second;
+    for (auto& kv : h_np3)  delete kv.second;
+    for (auto& kv : h_np4)  delete kv.second;
+    for (auto& kv : h_np5p) delete kv.second;
+}
+
 void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix)
 {
     if (ws_all.empty()) return;
@@ -704,6 +850,7 @@ int main(int argc, char **argv) {
     plot_comparisons(all_pulses, all_coincs, out_prefix, cfg, true);
     plot_neglog_hist(all_windows, out_prefix, 500);
     plot_obs_exp_corr(all_windows, out_prefix);
+    plot_time_ev_byNp(all_pulses, all_windows, out_prefix, cfg);
 
 	return 0;
 }

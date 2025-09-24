@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <utility>
+#include <memory>
 
 struct kSelectOptions {
     enum class Criterion { NLL, AIC, AICc, BIC, SoftBIC };
@@ -9,6 +10,10 @@ struct kSelectOptions {
     bool use_local_T = true;
     double lrt_min_delta = 0.0;
     int maxEval = 200;
+
+    bool debug = false;
+    int dbg_window_index = -1;
+    int dbg_cluster_index = -1;
 };
 
 struct FitProblem {
@@ -19,6 +24,15 @@ struct FitProblem {
     double bg_rate_hz = 0.0;
     double bin_width_sec = 0.0;
     bool fit_bg = false;
+
+    int windowIndex = -1;
+    int segmentId = -1;
+};
+
+struct SubproblemWithFrac {
+    FitProblem prob;
+    std::vector<double> frac_in_slice;
+    std::shared_ptr<std::vector<std::vector<double>>> owned_pdf;
 };
 
 struct FitResult {
@@ -42,6 +56,10 @@ FitResult fit_n_pulses_bobyqa(
 );
 
 FitProblem make_subproblem(const FitProblem& prob, int t0, int t1);
+
+SubproblemWithFrac make_subproblem_masscomp(const FitProblem& full, int t0, int t1);
+// Linear interpolation of f for fractional dt (clamped to [0, n-1])
+double frac_interp(const std::vector<double>& frac, double dt_local);
 
 std::vector<std::vector<std::pair<double, double>>> cluster_seeds(const std::vector<std::pair<double, double>>& seeds_sorted_by_dt, double binWidth_us, double cluster_close_us);
 
