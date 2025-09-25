@@ -13,7 +13,7 @@
     "minGap": 20,
     "pdf_csv_path": "./config/epoch_2_tail_response.csv",
 
-    "seeding_window_us": 0.5,
+    "seeding_window_us": 0.01,
     "pe_min_thresh": 5.0,
 
     "shift_us": 5.0,
@@ -33,7 +33,7 @@
     "coinc_win_us": 0.05,
     "coinc_seed_pe_min": 2,
 
-    "debug": true,
+    "debug": false,
     "debug_window_index": 371,
     "debug_segment_id": 34
 }

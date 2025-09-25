@@ -350,7 +350,7 @@ vector<vector<double>> Pulse_Fitting::generatePDFLookup(const vector<double>& xC
     return lookup;
 }
 
-vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thresholdFactor) {
+vector<double> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thresholdFactor) {
     // simple gradient-based seed find; thresholdFactor in units of grad "std"
     if ((int)hist.size() <= 2) {
         return {};
@@ -366,18 +366,18 @@ vector<int> Pulse_Fitting::findGradientPeaks(const vector<int>& hist, double thr
     double stdGrad = sqrt(sumSq / grad.size());
     double threshold = thresholdFactor * stdGrad;
 
-    vector<int> peaks;
+    vector<double> peaks;
     for (size_t i = 1; i + 1 < grad.size(); ++i) {
         if (grad[i] > threshold) {
-            peaks.push_back(static_cast<int>(i));
+            peaks.push_back((double)i);
         }
     }
     return peaks;
 }
 
-vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const
+vector<double> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const
 {
-    std::vector<int> seeds;
+    std::vector<double> seeds;
     const int N = (int)peTimes_us_.size();
     if (N < 2) return seeds;
 
@@ -402,16 +402,19 @@ vector<int> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, do
             ++total;
         }
 
-        const int seed_idx = pre_bins + (int)std::floor((t0 - startUs) / binWidthUs);
         const bool accepted = (armed && total >= coinc_seed_pe_min_);
-        if (accepted) {
-            seeds.push_back(seed_idx);
+        if (armed && total >= coinc_seed_pe_min_) {
+            const double dt_bins = pre_bins + (t0 - startUs) / binWidthUs; // fractional
+            seeds.push_back(dt_bins);
             prev_time_us = t0 + seeding_window_us_; // us
         }
     }
 
     std::sort(seeds.begin(), seeds.end());
-    seeds.erase(std::unique(seeds.begin(), seeds.end()), seeds.end());
+    const double eps = 1e-4; // bins (min separation)
+    seeds.erase(std::unique(seeds.begin(), seeds.end(),
+                            [eps](double a, double b){ return std::fabs(a - b) < eps; }),
+                seeds.end());
 
     return seeds;
 }
@@ -423,7 +426,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
                               const vector<double>* fixedExpected) 
 {
     const int pre_bins = static_cast<int>(std::llround(shiftUs_ / binWidth_us)); // Since PDF is shifted by +5 us
-    std::vector<int> peaks;
+    std::vector<double> peaks;
 
     const bool dbg = curWindowIndex_ == debug_window_index_ && segmentId_ == debug_segment_id_ && debug_;
 
@@ -437,7 +440,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         const double endUs = curWindowStartUs_ + std::max(0, (int)xCenters.size() - pre_bins) * binWidth_us;
         peaks = findCoincidenceSeeds(startUs, endUs, binWidth_us, pre_bins);
         if (dbg) {
-            std::vector<int> dbg_grad_peaks = findGradientPeaks(hist, gradThr_);
+            std::vector<double> dbg_grad_peaks = findGradientPeaks(hist, gradThr_);
             std::cerr << "[COINC] window#" << curWindowIndex_
                     << " start=" << startUs << "us"
                     << " end=" << endUs << "us"
@@ -455,11 +458,24 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             for (auto b : hist) std::cerr << b << ' ';
             std::cerr << "]\n";
 
-            std::cerr << "  [GRAD] seed bins: ";
-            for (int b : dbg_grad_peaks) std::cerr << b << ' ';
+            std::cerr << "[DBG] (idx (rounded), pe_Times_, pe_Time_diff (with next), PMT):";
+            for (size_t i = 0; i < peTimes_us_.size(); ++i) {
+                if (peTimes_us_[i] < startUs || peTimes_us_[i] > endUs) continue;
+                // If pe_Times_ is in bin indices, convert to absolute µs:
+                double t_us = (peTimes_us_[i] - startUs);
+                double seed_idx = pre_bins + t_us / binWidth_us;
+                double t_diff_us = 0;
+                if (peTimes_us_[i+1] <= endUs) t_diff_us = (peTimes_us_[i+1] - peTimes_us_[i]);
+                std::cerr << " (" << seed_idx << ", " << t_us << ", " << t_diff_us << ", " << peChans_[i] << ") ";
+            }
             std::cerr << "\n";
+
+            std::cerr << "  [GRAD] seed bins: ";
+            for (double b : dbg_grad_peaks) std::cerr << (int)b << ' ';
+            std::cerr << "\n";
+            
             std::cerr << "  seed bins: ";
-            for (int b : peaks) std::cerr << b << ' ';
+            for (double b : peaks) std::cerr << std::fixed << std::setprecision(2) << b << ' ';
             std::cerr << "\n";
         }
     } else {
@@ -468,7 +484,8 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         dtGuess.push_back(0.0);
     }
 
-    for (int p : peaks) {
+    for (double dt_seed : peaks) {
+        int p = (int)std::floor(dt_seed);
         if (p < pre_bins + guardBin_) {
             continue;
         };
@@ -529,7 +546,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
 
     kSelectOptions kopt;
     kopt.criterion = kSelectOptions::Criterion::SoftBIC;
-    kopt.use_local_T = false;
+    kopt.use_local_T = true;
     kopt.lrt_min_delta = 6.0; // set 0.0 to disable
     kopt.use_bic_lambda = 0.5;
     kopt.maxEval = 200;
@@ -552,19 +569,14 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         const double cmin = std::max(dtMin, cl.front().first - pad_bins);
         const double cmax = std::min(dtMax, cl.back().first + pad_bins);
 
-        const int t0 = (int)std::ceil(cmin);
-        const int t1 = (int)std::floor(cmax);
-
-        const int t0_global = t0; // Adding pre_bins in as PDF requires the flat region
-        const int t1_global = t1 + pre_bins; // Adding ending tail to it. 
-        auto sub_mc = make_subproblem_masscomp(prob, t0_global, t1_global);
-        FitProblem& subprob = sub_mc.prob;
-        const auto& frac = sub_mc.frac_in_slice;
+        const int t0 = (int)std::ceil(cmin); // Adding pre_bins in as PDF requires the flat region
+        const int t1 = (int)std::floor(cmax) + (int)(std::ceil(cluster_close_us_ / binWidth_us)); // Adding ending tail to it plus additional paddings.
+        auto sub_prob = make_subproblem(prob, t0, t1);
 
         if (dbg) {
             std::cerr << "\n[CLUSTER] #" << ci << "  sub-histogram:\n";
             std::cerr << "[";
-            for (auto b : *(subprob.observed)) std::cerr << b << ' ';
+            for (auto b : *(sub_prob.observed)) std::cerr << b << ' ';
             std::cerr << "]\n";
         }
 
@@ -584,7 +596,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
                             << dt_final << "," << pe_final << ")\n";
         } else {
             auto [best, kstart] = select_k_for_cluster(
-                subprob, cl_local,
+                sub_prob, cl_local,
                 pe_min_thresh_, 300.0,
                 dtMin_loc, dtMax_loc,
                 kopt  
@@ -593,7 +605,6 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             if (best.ok) {
                 for (size_t i = 0; i < best.PEs.size(); ++i) {
                     double dt_loc = best.DTs[i];
-                    double f = frac_interp(frac, dt_loc);
                     double pe_global = best.PEs[i];
                     double dt_global = dt_loc + t0;
 
@@ -684,17 +695,19 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     }
 
     vector<double> expected(hist.size(), 0.0);
+
     if (fixedExpected) {
         const auto& fix = *fixedExpected;
-        for (size_t j = 0; j < expected.size(); ++j){
-            double v = (j < (int)fix.size() ? fix[j] : 0.0);
-            expected[j] = std::isfinite(v) && v >= 0 ? v : 0.0;
-            if (prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0 && prob.fit_bg) {
-                const double b = prob.bg_rate_hz * prob.bin_width_sec;
-                if (std::isfinite(b) && b > 0.0) {
-                    expected[j] += b;
-                }
-            }
+        for (size_t j = 0; j < expected.size(); ++j) {
+            double v = (j < fix.size() ? fix[j] : 0.0);
+            expected[j] = (std::isfinite(v) && v >= 0) ? v : 0.0;
+        }
+    }
+
+    if (prob.fit_bg && prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0) {
+        const double b = prob.bg_rate_hz * prob.bin_width_sec;  // if bg_rate_hz_ is Hz
+        if (std::isfinite(b) && b > 0.0) {
+            for (double& e : expected) e += b;
         }
     }
 
@@ -719,6 +732,36 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         return s;
     };
     double logL = poissonLogL(hist, expected);
+
+    if (dbg) {  // only if debugging
+        double sum_obs = std::accumulate(hist.begin(), hist.end(), 0.0);
+        double sum_exp = std::accumulate(expected.begin(), expected.end(), 0.0);
+
+        double total_pe = 0.0;
+        for (int i = 0; i < fittedPEs.size(); ++i)
+            total_pe += std::max(0.0, fittedPEs[i]);
+
+        const double per_bin_bg = (prob.fit_bg && prob.bg_rate_hz > 0 && prob.bin_width_sec > 0)
+                                  ? prob.bg_rate_hz * prob.bin_width_sec : 0.0;
+        const double total_bg = per_bin_bg * prob.nTime;
+
+        const double total_fix = (prob.fixedExpected
+                                  ? std::accumulate(prob.fixedExpected->begin(),
+                                                    prob.fixedExpected->end(), 0.0)
+                                  : 0.0);
+
+        const double bw_us = prob.bin_width_sec * 1e6;
+        std::cerr << std::fixed
+                  << "[DBG] win#" << prob.windowIndex
+                  << " seg=" << prob.segmentId
+                  << " T=" << prob.nTime
+                  << " binWidth_us=" << bw_us
+                  << " sum_obs=" << sum_obs
+                  << " sum_exp=" << sum_exp
+                  << " (PEs=" << total_pe
+                  << " + BG=" << total_bg
+                  << " + FIX=" << total_fix << ")\n";
+    }
 
     WindowStat ws;
     ws.windowIndex   = curWindowIndex_;

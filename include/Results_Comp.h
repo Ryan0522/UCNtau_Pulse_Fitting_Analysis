@@ -18,6 +18,7 @@ struct WindowRow {
     std::string segment;
     int windowIndex;
     double start;
+    double end;
     double binWidth_us;
     int nPulses;
     double negLogL;

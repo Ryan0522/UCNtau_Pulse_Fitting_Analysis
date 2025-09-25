@@ -136,11 +136,12 @@ std::vector<WindowRow> load_window_stats(int run_number, std::string epoch, cons
         r.segment = col[0];
         r.windowIndex = std::stoi(col[1]);
         r.start = std::stod(col[2]);
-        r.binWidth_us = std::stod(col[3]);
-        r.nPulses = std::stoi(col[4]);
-        r.negLogL = std::stod(col[5]);
-        r.N_obs = std::stoi(col[6]);
-        r.N_exp = std::stod(col[7]);
+        r.end = std::stod(col[3]);
+        r.binWidth_us = std::stod(col[4]);
+        r.nPulses = std::stoi(col[5]);
+        r.negLogL = std::stod(col[6]);
+        r.N_obs = std::stoi(col[7]);
+        r.N_exp = std::stod(col[8]);
 
         rows.push_back(std::move(r));
     }
@@ -342,8 +343,10 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
     std::map<std::string, TGraph*> g_by_seg;
     for (auto& s : segs) g_by_seg[s] = new TGraph();
 
-    int minObs = ws_all.front().N_obs, maxObs = minObs;
-    double minExp = ws_all.front().N_exp, maxExp = minExp;
+    int minObs = ws_all.front().N_obs;
+    double minExp = ws_all.front().N_exp;
+    const double maxObs = 220.0;
+    const double maxExp = 220.0;
     
     for (const auto& w : ws_all) {
         auto it = g_by_seg.find(w.segment);
@@ -351,12 +354,13 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
         int p = it->second->GetN();
         it->second->SetPoint(p, (double)w.N_obs, w.N_exp);
         minObs = std::min(minObs, w.N_obs);
-        maxObs = std::max(maxObs, w.N_obs);
+        // maxObs = std::max(maxObs, w.N_obs);
         minExp = std::min(minExp, w.N_exp);
-        maxExp = std::max(maxExp, w.N_exp);
+        // maxExp = std::max(maxExp, w.N_exp);
     }
 
     double lo = std::min((double)minObs, minExp);
+    if (lo > 0.0) lo = 0.0;
     double hi = std::max((double)maxObs, maxExp);
     if (hi <= lo) hi = lo + 1.0;
 

@@ -17,22 +17,17 @@ struct kSelectOptions {
 };
 
 struct FitProblem {
-    const std::vector<int>* observed;
-    const std::vector<std::vector<double>>* pdfLookup;
-    const std::vector<double>* fixedExpected;
-    int nTime;
+    const std::vector<int>* observed = nullptr;
+    const std::vector<std::vector<double>>* pdfLookup = nullptr;
+    const std::vector<double>* fixedExpected = nullptr;
+    int nTime = 0;
     double bg_rate_hz = 0.0;
     double bin_width_sec = 0.0;
-    bool fit_bg = false;
-
+    bool fit_bg = true;
     int windowIndex = -1;
     int segmentId = -1;
-};
 
-struct SubproblemWithFrac {
-    FitProblem prob;
-    std::vector<double> frac_in_slice;
-    std::shared_ptr<std::vector<std::vector<double>>> owned_pdf;
+    int t0_offset = 0; // 0 for full-window problems; =t0 for subproblems
 };
 
 struct FitResult {
@@ -56,10 +51,6 @@ FitResult fit_n_pulses_bobyqa(
 );
 
 FitProblem make_subproblem(const FitProblem& prob, int t0, int t1);
-
-SubproblemWithFrac make_subproblem_masscomp(const FitProblem& full, int t0, int t1);
-// Linear interpolation of f for fractional dt (clamped to [0, n-1])
-double frac_interp(const std::vector<double>& frac, double dt_local);
 
 std::vector<std::vector<std::pair<double, double>>> cluster_seeds(const std::vector<std::pair<double, double>>& seeds_sorted_by_dt, double binWidth_us, double cluster_close_us);
 

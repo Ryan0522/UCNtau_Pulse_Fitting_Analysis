@@ -123,82 +123,35 @@ static inline void dump_params_bounds(const std::vector<double>& params,
 
 FitProblem make_subproblem(const FitProblem& prob, int t0, int t1) {
     const auto& y = *prob.observed;
-    const auto& LU = *prob.pdfLookup;
     const int T = prob.nTime;
 
     t0 = std::max(0, t0);
     t1 = std::min(T-1, t1);
+    if (t1 < t0) return {}; // invalid
     const int L = (t1 - t0 + 1);
-    if (L <= 0) return {}; // invalid
 
     auto* y_slice = new std::vector<int>(y.begin() + t0, y.begin() + t1 + 1);
-    auto* LU_slice = new std::vector<std::vector<double>>(LU.size());
-    for (size_t r = 0; r < LU.size(); ++r) {
-        const auto& row = LU[r];
-        (*LU_slice)[r].assign(row.begin() + t0, row.begin() + t1 + 1);
-    }
+    const auto* LU_global = prob.pdfLookup;
 
-    const std::vector<double>* fix_ptr = nullptr;
-    auto* fix = new std::vector<double>();
-    const auto& F = *prob.fixedExpected;
-    const int Fn = (int)F.size();
-    const int a = std::min(std::max(0, t0), Fn);
-    const int b = std::min(std::max(0, t1+1), Fn);
-    fix->assign(F.begin() + a, F.begin() + b);
-    fix_ptr = fix;
+    const std::vector<double>* F_slice_ptr = nullptr;
+    if (prob.fixedExpected) {
+        auto* F_slice = new std::vector<double>(
+            prob.fixedExpected->begin() + t0, prob.fixedExpected->begin() + t1 + 1);
+        F_slice_ptr = F_slice;
+    }
 
     FitProblem sub;
     sub.observed      = y_slice;
-    sub.pdfLookup     = LU_slice;
-    sub.fixedExpected = fix_ptr;
+    sub.pdfLookup     = LU_global;
+    sub.fixedExpected = F_slice_ptr;
     sub.nTime         = L;
     sub.bg_rate_hz    = prob.bg_rate_hz;
     sub.bin_width_sec = prob.bin_width_sec;
     sub.fit_bg        = prob.fit_bg;
     sub.windowIndex   = prob.windowIndex;
     sub.segmentId     = prob.segmentId;
+    sub.t0_offset = t0;
     return sub;
-}
-
-SubproblemWithFrac make_subproblem_masscomp(const FitProblem& full, int t0, int t1) {
-    constexpr double EPS = 1e-12;
-
-    FitProblem sub = make_subproblem(full, t0, t1);
-
-    const int nDT_loc = (int)sub.pdfLookup->size();         // dt indices: 0..(t1-t0)
-    const int nT_loc  = (int)sub.nTime;
-
-    std::vector<double> frac(nDT_loc, 1.0);
-
-    for (int j = 0; j < nDT_loc; ++j) {
-        const int jg = j + t0; // global dt index
-
-        // Clamp in case of ragged edges
-        const auto& col_full  = (*full.pdfLookup)[std::max(0, std::min(jg, (int)full.pdfLookup->size() - 1))];
-        const auto& col_slice = (*sub.pdfLookup)[j];
-
-        double s_full  = 0.0; for (double v : col_full)  s_full  += v;
-        double s_slice = 0.0; for (double v : col_slice) s_slice += v;
-
-        s_full  = std::max(EPS, s_full);
-        s_slice = std::max(EPS, s_slice);
-
-        double f = s_slice / s_full;         // fraction of mass in the local slice
-        if (f < EPS) f = EPS;                // guard
-        if (f > 1.0) f = 1.0;                // numeric guard
-        frac[j] = f;
-    }
-
-    auto scaled_pdf = std::make_shared<std::vector<std::vector<double>>>(*sub.pdfLookup);
-    for (int j = 0; j < nDT_loc; ++j) {
-        const double s = 1.0 / std::max(EPS, frac[j]);
-        auto& col = (*scaled_pdf)[j];
-        for (double& v : col) v *= s;
-    }
-
-    sub.pdfLookup = scaled_pdf.get();
-
-    return SubproblemWithFrac{std::move(sub), std::move(frac), std::move(scaled_pdf)};
 }
 
 double frac_interp(const std::vector<double>& frac, double dt_local)
@@ -234,20 +187,23 @@ static double negLogL_core(const std::vector<double>& params,
         for (int i = 0; i < T; ++i) {
             double v = (i < (int)fix.size() ? fix[i] : 0.0);
             expv[i] = std::isfinite(v) && v >= 0 ? v : 0.0;
-            if (prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0 && prob.fit_bg) {
-                const double b = prob.bg_rate_hz * prob.bin_width_sec;
-                if (std::isfinite(b) && b > 0.0) {
-                    expv[i] += b;
-                }
-            }
+        }
+    }
+
+    if (prob.bg_rate_hz > 0.0 && prob.bin_width_sec > 0.0 && prob.fit_bg) {
+        const double b = prob.bg_rate_hz * prob.bin_width_sec;
+        if (std::isfinite(b) && b > 0.0) {
+            for (int i = 0; i < T; ++i) expv[i] += b;
         }
     }
 
     // params = [PE_0..PE_{n-1}, dt_0..dt_{n-1}]
     for (int i = 0; i < nPulses; ++i) {
         double PE = params[i];
-        double dt = params[nPulses + i];
-        if (!(PE >= 0.0) || !std::isfinite(PE) || !std::isfinite(dt)) return 1e300;
+        double dt_loc = params[nPulses + i];
+        if (!(PE >= 0.0) || !std::isfinite(PE) || !std::isfinite(dt_loc)) return 1e300;
+
+        double dt = dt_loc + (double)prob.t0_offset;
 
         if (dt < 0.0) dt = 0.0;
         if (dt > (double)(R - 1) - 1e-9) dt = (double)(R - 1) - 1e-9;
@@ -256,12 +212,17 @@ static double negLogL_core(const std::vector<double>& params,
         double a = dt - i0; // [0,1)
         const auto& r0 = LU[i0];
         const auto& r1 = LU[i0 + 1];
+        const int C0 = (int)r0.size();
+        const int C1 = (int)r1.size();
 
-        for (int t = 0; t < T; ++t) {
-            double row = (1.0 - a) * r0[t] + a * r1[t];
+        for (int b = 0; b < T; ++b) {
+            const int g = prob.t0_offset + b;
+            if (g < 0 || g >= C0 || g >= C1) continue; // outside support
+
+            double row = (1.0 - a) * r0[g] + a * r1[g];
             double add = PE * row; // density -> mass distribution (Sept 1st, 2025)
             if (!std::isfinite(add) || add < 0) return 1e300;
-            expv[t] += add;
+            expv[b] += add;
         }
     }
     for (double& v : expv) if (v < 0.0) v = 1e-12;
@@ -462,20 +423,11 @@ std::pair<FitResult,int> select_k_for_cluster(
         prev_nll = r.nll;
         have_prev = true;
 
-        if (!pass_lrt) continue;
-
-        const double s = score(r.nll, k, T_eff);
-        const double s_best = best.ok 
-            ? score(best.nll, best_k, T_eff) 
-            : std::numeric_limits<double>::infinity();
-
-        if (!best.ok || s < s_best) { best=r; best_k=k; }
-
         if (opt.debug) {
             const int p = 2 * T_eff;
             const double T = (opt.use_local_T ? std::max(1, prob.nTime) : std::max(1, prob.nTime));
             const double AIC  = r.nll + p;
-            const double AICc = r.nll + p + (p*(p+1)) / std::max(1.0, T - p - 1.0);
+            const double AICc = (T > p + 1) ? AIC + (2.0*p*(p+1)) / (T - p - 1) : std::numeric_limits<double>::infinity();
             const double BIC  = r.nll + 0.5 * p * std::log(T);
             const double SBIC = r.nll + 0.5 * opt.use_bic_lambda * p * std::log(T);
             std::cerr << "    [kSel] k_eff=" << T_eff
@@ -485,6 +437,15 @@ std::pair<FitResult,int> select_k_for_cluster(
                     << "  BIC=" << BIC
                     << "  SoftBIC(λ=" << opt.use_bic_lambda << ")=" << SBIC << "\n";
         }  
+
+        if (!pass_lrt) continue;
+
+        const double s = score(r.nll, k, T_eff);
+        const double s_best = best.ok 
+            ? score(best.nll, best_k, T_eff) 
+            : std::numeric_limits<double>::infinity();
+
+        if (!best.ok || s < s_best) { best=r; best_k=k; }
     }
 
     if (opt.debug) {

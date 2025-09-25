@@ -197,9 +197,9 @@ class Pulse_Fitting {
         
         std::vector<std::vector<double>> generatePDFLookup(const std::vector<double>& xCenters); // cached shifted PDFs
 
-        std::vector<int> findGradientPeaks(const std::vector<int>& hist, double threshold);
+        std::vector<double> findGradientPeaks(const std::vector<int>& hist, double threshold);
           
-        std::vector<int> findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const;
+        std::vector<double> findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const;
 
         bool fitPulses(const std::vector<int>& hist, const std::vector<double>& xCenters,
                     const std::vector<std::vector<double>>& pdfLookup,
