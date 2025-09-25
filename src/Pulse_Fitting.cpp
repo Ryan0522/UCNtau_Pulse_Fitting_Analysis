@@ -8,6 +8,7 @@
 #include <limits>
 #include <stdexcept>
 #include <cmath>
+#include <deque>
 
 using namespace std;
 
@@ -419,6 +420,54 @@ vector<double> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs,
     return seeds;
 }
 
+// struct Hit { double t; int ch; };
+
+// vector<double> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs, double binWidthUs, int pre_bins) const {
+//     std::vector<Hit> hits;
+//     hits.reserve(peTimes_us_.size());
+//     for (size_t k = 0; k < peTimes_us_.size(); ++k) {
+//         double t = peTimes_us_[k];
+//         if (t >= startUs && t < endUs) hits.push_back({t, peChans_[k]});
+//     }
+//     std::sort(hits.begin(), hits.end(), [](auto& a, auto& b){ return a.t < b.t; });
+
+//     std::deque<Hit> w;
+//     std::array<int, 256> chCount{};
+//     int distinctCh = 0;
+    
+//     auto add = [&](const Hit& h) {
+//         if (chCount[h.ch]++ == 0) ++ distinctCh;
+//         w.push_back(h);
+//     };
+//     auto pop_front = [&](){
+//         const Hit& h = w.front();
+//         if (--chCount[h.ch] == 0) --distinctCh;
+//         w.pop_front();
+//     };
+
+//     std::vector<double> seeds;
+//     double next_ok_time = -1e99;
+
+//     for (const Hit& h : hits) {
+//         if (h.t < next_ok_time) continue;
+//         add(h);
+//         while (!w.empty() && (w.back().t - w.front().t) > coinc_win_us_) pop_front();
+
+//         const int count = (int)w.size();
+//         const bool cross = (distinctCh >= 2);
+//         if (count >= coinc_seed_pe_min_ && cross) {
+//             const double t_seed = w.front().t;
+//             const double dt_bins = pre_bins + (t_seed - startUs) / binWidthUs;
+//             seeds.push_back(dt_bins);
+
+//             next_ok_time = t_seed + seeding_window_us_;
+//             while (!w.empty() && w.front().t < next_ok_time) pop_front();
+//         }
+//     }
+
+//     return seeds;
+// }
+
 bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCenters,
                               const vector<vector<double>>& pdfLookup,
                               vector<double>& fittedPEs, vector<double>& fittedDTs,
@@ -464,8 +513,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
                 // If pe_Times_ is in bin indices, convert to absolute µs:
                 double t_us = (peTimes_us_[i] - startUs);
                 double seed_idx = pre_bins + t_us / binWidth_us;
-                double t_diff_us = 0;
-                if (peTimes_us_[i+1] <= endUs) t_diff_us = (peTimes_us_[i+1] - peTimes_us_[i]);
+                double t_diff_us = peTimes_us_[i+1] - peTimes_us_[i];
                 std::cerr << " (" << seed_idx << ", " << t_us << ", " << t_diff_us << ", " << peChans_[i] << ") ";
             }
             std::cerr << "\n";
