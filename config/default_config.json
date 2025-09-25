@@ -22,7 +22,7 @@
     "guard_bin": 1,
     "cluster_close_us": 5.0,
 
-    "plot_fits": true,
+    "plot_fits": false,
     "pileup_min_pulses": 2,
 
     "plot_outliers": true,

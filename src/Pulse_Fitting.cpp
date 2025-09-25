@@ -261,6 +261,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
 
         curWindowIndex_ = windowIndex;
         curWindowStartUs_ = startTime;
+        curWindowEndUs_ = endTime;
         curWindowBinWidth_us_ = binWidth_us;
 
         bool success = fitPulses(hist, xCenters, pdfLookup, fittedPEs, fittedDTs, binWidth_us, &carry);
@@ -722,6 +723,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
     WindowStat ws;
     ws.windowIndex   = curWindowIndex_;
     ws.startTimeUs   = curWindowStartUs_;
+    ws.endTimeUs     = curWindowEndUs_;
     ws.binWidthUs    = curWindowBinWidth_us_;
     ws.nPulsesChosen = (int)fittedPEs.size();
     ws.logL          = logL;

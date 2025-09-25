@@ -10,6 +10,7 @@
 #include <limits>
 #include <TCanvas.h>
 #include <TH1D.h>
+#include <TH2.h>
 #include <TLegend.h>
 #include <TROOT.h>
 #include <TCollection.h>
@@ -337,41 +338,84 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
 {
     if (ws_all.empty()) return;
 
-    TCanvas* c = new TCanvas("c_obs_pdf", "Observed vs PDF", 1000, 650);
-    
-    // c->SetLogx(1); c->SetLogy(1);
-    
-    TGraph* g = new TGraph();
-    g->SetTitle("Observed vs PDF PE Counts;N_{obs};N_{PDF}");
+    std::vector<std::string> segs = {"12", "34", "56", "78"};
+    std::map<std::string, TGraph*> g_by_seg;
+    for (auto& s : segs) g_by_seg[s] = new TGraph();
 
-    int idx = 0;
     int minObs = ws_all.front().N_obs, maxObs = minObs;
     double minExp = ws_all.front().N_exp, maxExp = minExp;
-
+    
     for (const auto& w : ws_all) {
-        g->SetPoint(idx++, (double)w.N_obs, w.N_exp);
+        auto it = g_by_seg.find(w.segment);
+        if (it == g_by_seg.end()) continue;
+        int p = it->second->GetN();
+        it->second->SetPoint(p, (double)w.N_obs, w.N_exp);
         minObs = std::min(minObs, w.N_obs);
         maxObs = std::max(maxObs, w.N_obs);
         minExp = std::min(minExp, w.N_exp);
         maxExp = std::max(maxExp, w.N_exp);
     }
 
-    c->SetGrid();
-    g->SetMarkerStyle(6); // tiny dot
-    g->Draw("AP"); // A is axis P is point
-
-    // y=x reference line
     double lo = std::min((double)minObs, minExp);
     double hi = std::max((double)maxObs, maxExp);
+    if (hi <= lo) hi = lo + 1.0;
 
-    TLine* diag = new TLine(lo, lo, hi, hi);
-    diag->SetLineStyle(1);
-    diag->SetLineColor(kRed+1);
-    diag->Draw("SAME");
+    TCanvas* c = new TCanvas("c_obs_pdf_byseg", "Observed vs PDF by segment", 1200, 800);
+    c->Divide(2,2);
+    int colors[4] = {kBlue+1, kRed+1, kGreen+2, kMagenta+1};
 
-    c->Update();
+    for (size_t i = 0; i < segs.size(); ++i) {
+        c->cd((int)i+1); gPad->SetGrid();
+        gPad->DrawFrame(
+            lo, lo, hi, hi,
+            Form("Observed vs PDF - seg %s;N_{obs};N_{PDF}", segs[i].c_str())
+        );
+
+        auto* g = g_by_seg[segs[i]];
+        g->SetMarkerStyle(6);
+        g->SetMarkerSize(0.7);
+        g->SetMarkerColor(colors[i]);
+        g->Draw("P SAME");
+
+        auto* diag = new TLine(lo, lo, hi, hi);
+        diag->SetLineColor(kGray+2);
+        diag->SetLineStyle(2);
+        diag->SetLineWidth(2);
+        diag->Draw("SAME");
+
+        c->Modified(); c->Update();
+    }
     c->SaveAs((out_png_prefix + "_obs_pdf_correlation.png").c_str());
     delete c;
+
+    // Overlay
+    TCanvas* c2 = new TCanvas("c_obs_pdf_overlay_byseg", "Observed vs PDF (overlay by segment)", 1000, 700);
+    c2->SetGrid();
+    TH2D frameAll("fr_all", "Observed vs PDF — all segments;N_{obs};N_{PDF}", 1, lo, hi, 1, lo, hi);
+    frameAll.SetStats(0); frameAll.Draw();
+
+    TLegend leg(0.62, 0.16, 0.88, 0.34);
+    leg.SetBorderSize(0); leg.SetFillStyle(0);
+
+    for (size_t i = 0; i < segs.size(); ++i) {
+        auto* g = g_by_seg[segs[i]];
+        g->SetMarkerStyle(6);
+        g->SetMarkerSize(0.6);
+        g->SetMarkerColor(colors[i]);
+        g->Draw("P SAME");
+        leg.AddEntry(g, Form("seg %s (n=%d)", segs[i].c_str(), g->GetN()), "p");
+    }
+
+    TLine diag2(lo, lo, hi, hi);
+    diag2.SetLineColor(kGray+2);
+    diag2.SetLineStyle(2);
+    diag2.Draw("SAME");
+    leg.Draw();
+
+    c2->SaveAs((out_png_prefix + "_obs_pdf_correlation_overlay.png").c_str());
+    delete c2;
+
+    for (auto& kv : g_by_seg) delete kv.second;
 }
 
 // Make quick side‑by‑side ROOT histograms

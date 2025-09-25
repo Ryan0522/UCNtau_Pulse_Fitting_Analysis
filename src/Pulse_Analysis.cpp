@@ -225,7 +225,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	ws << std::setprecision(9);
 
 	out << "Segment, Time (s), PE, Window Width, isFineBinWidth, Event\n";
-	ws << "Segment,Window,Start,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
+	ws << "Segment,Window,Start,End,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
@@ -305,6 +305,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 			ws << segment_labels[seg] << ","
 			<< s.windowIndex << ","
 			<< s.startTimeUs/1e6 << ","
+			<< s.endTimeUs/1e6 << ","
 			<< s.binWidthUs << ","
 			<< s.nPulsesChosen << ","
 			<< -s.logL << ","

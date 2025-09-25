@@ -11,6 +11,7 @@
 struct WindowStat {
     int windowIndex;
     double startTimeUs;
+    double endTimeUs;
     double binWidthUs;
     int nPulsesChosen;
     double logL;
@@ -158,6 +159,7 @@ class Pulse_Fitting {
         std::vector<WindowStat> windowStats_;
         int curWindowIndex_ = -1;
         double curWindowStartUs_ = 0.0;
+        double curWindowEndUs_ = 0.0;
         double curWindowBinWidth_us_ = 0.0;
         // -- end NEW ---
 
