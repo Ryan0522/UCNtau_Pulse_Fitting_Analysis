@@ -463,39 +463,39 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         };
 
         auto draw_ratio_axis = [&](TH1D* hLeft, TH1D* hPulse, TH1D* hCoinc, const std::string& name_suffix)->TH1D* {
-            TH1D* h_ratio = (TH1D*)hCoinc->Clone(("h_ratio_"+name_suffix).c_str());
-            h_ratio->SetTitle("");
-            for (int b = 1; b <= h_ratio->GetNbinsX(); ++b) {
-                double A = hCoinc->GetBinContent(b); // coinc
-                double B = hPulse->GetBinContent(b); // pulse
-                h_ratio->SetBinContent(b, (A > 0.0) ? (B / A) : 0.0);
-                h_ratio->SetBinError(b, 0.0);
+            double rightMin = 0.5, rightMax = 1.3;
+            hPulse->Sumw2(); hCoinc->Sumw2();
+
+            auto* h_ratio = (TH1D*)hPulse->Clone(("h_ratio_"+name_suffix).c_str());
+            h_ratio->Divide(hCoinc);
+
+            gPad->Update();
+            double yLow  = gPad->GetUymin();
+            double yHigh = gPad->GetUymax();
+            double m = (yHigh - yLow) / (rightMax - rightMin);   // slope
+            double b = yLow - m * rightMin;                      // intercept
+
+            auto* h_ratio_scaled = (TH1D*)h_ratio->Clone(("h_ratio_scaled_"+name_suffix).c_str());
+            for (int bni=1; bni<=h_ratio_scaled->GetNbinsX(); ++bni) {
+                double r = h_ratio->GetBinContent(bni);         // true ratio value
+                h_ratio_scaled->SetBinContent(bni, m*r + b);    // draw in left-axis coords
+                h_ratio_scaled->SetBinError(bni, 0.0);
             }
 
-            double rightMax = 1.3;
-            double scale = (hLeft->GetMaximum() > 0.0) ? (hLeft->GetMaximum() / rightMax) : 1.0;
-
-            TH1D* h_ratio_scaled = (TH1D*)h_ratio->Clone(("h_ratio_scaled_"+name_suffix).c_str());
-            h_ratio_scaled->Scale(scale);
             h_ratio_scaled->SetLineColor(kGreen+2);
             h_ratio_scaled->SetLineStyle(2);
             h_ratio_scaled->SetLineWidth(2);
             h_ratio_scaled->Draw("HIST SAME");
 
-            // Right Y axis
-            gPad->Update();
-            double xRight = gPad->GetUxmax();
-            double yLow   = gPad->GetUymin();
-            double yHigh  = gPad->GetUymax();
-            auto axis = new TGaxis(xRight, yLow, xRight, yHigh, 0.9, rightMax, 510, "+L");
+            // Right Y axis (now consistent)
+            auto axis = new TGaxis(gPad->GetUxmax(), yLow, gPad->GetUxmax(), yHigh,
+                                rightMin, rightMax, 510, "+L");
             axis->SetTitle("Pulse/Coinc");
             axis->SetTitleColor(kGreen+2);
             axis->SetLabelColor(kGreen+2);
             axis->SetLineColor(kGreen+2);
-            axis->SetLabelSize(0.035);
-            axis->SetTitleSize(0.040);
-            axis->SetTitleOffset(1.1);
             axis->Draw();
+
             return h_ratio_scaled; // return for legend
         };
 
@@ -517,6 +517,15 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
                 TH1D* hP = itP==pulse_by_seg.end() ? nullptr : itP->second;
                 TH1D* hC = itC==coinc_by_seg.end() ? nullptr : itC->second;
                 if (!hP && !hC) continue;
+
+                // 1) Global check: should match your green plateau.
+                std::cout << "P/C integrals: "
+                        << hP->Integral() / hC->Integral() << "\n";
+
+                // 2) Peak-bin check: should also be ~ the green value.
+                int b = hP->GetMaximumBin();
+                std::cout << "Peak-bin P/C: "
+                        << hP->GetBinContent(b) / hC->GetBinContent(b) << "\n";
 
                 double ymax = 1.0;
                 if (hP) ymax = std::max(ymax, hP->GetMaximum());
