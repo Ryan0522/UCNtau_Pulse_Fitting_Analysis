@@ -193,6 +193,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
     c.output_folder = cfg.value("output_folder", "./output/");
     c.runinfo_path = cfg.value("runinfo", "./config/betteroutput2022.json");
     c.good_runs_path = cfg.value("good_runs", "./config/2022runlist.txt");
+	c.coinc_results_path = cfg.value("coinc_results_path", "./output/runinfo_2022_all.csv");
     c.start_run = cfg.value("start_run", 0);
     c.end_run = cfg.value("end_run", 0);
     c.save_to_txt = cfg.value("save_to_txt", false);

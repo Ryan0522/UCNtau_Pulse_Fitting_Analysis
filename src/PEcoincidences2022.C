@@ -285,7 +285,7 @@ void getunloadsbackgrounds(CoincidenceList cl, string runnum, double avgkuval, d
 		int et = event_type(realtime);
 		if (et == -1) continue;
 		//cout << segment << ", "<<realtime << ", " << N << endl;
-		thisfile << segment << ", "<<realtime << ", " << N << ", " << et << endl;
+		thisfile << runnum << "," << segment << ","<< realtime << "," << N << "," << et << endl;
 	}
 	thisfile.close();
 	delete hcoinc;

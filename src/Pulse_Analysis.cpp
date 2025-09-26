@@ -21,6 +21,7 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "output_folder      = " << c.output_folder << "\n";
     os << "runinfo_path       = " << c.runinfo_path << "\n";
     os << "good_runs_path     = " << c.good_runs_path << "\n";
+	os << "coinc_results_path = " << c.coinc_results_path << "\n";
     os << "start_run          = " << c.start_run << "\n";
     os << "end_run            = " << c.end_run << "\n";
     os << "save_to_txt        = " << std::boolalpha << c.save_to_txt << "\n";
@@ -224,7 +225,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	out << std::setprecision(9);
 	ws << std::setprecision(9);
 
-	out << "Segment, Time (s), PE, Window Width, isFineBinWidth, Event\n";
+	out << "Run number,Segment,Time (s),PE,Window Width,isFineBinWidth,Event\n";
 	ws << "Segment,Window,Start,End,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
@@ -281,22 +282,24 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		
 		// write signal pulsese (Event=1)
 		for (const auto& event : signalPulses) {
-			out << segment_labels[seg] << ", " // Segment
-				<< get<0>(event)/1e6 << ", " // event time (us)
-				<< get<1>(event) << ", " // PE count
-				<< get<3>(event) << ", " // WindowWidth
-				<< get<5>(event) << ", " // binWidth (1) or fineBinWidth (0)
-				<< "1 \n";
+			out << params["run_number"] << "," // run number
+				<< segment_labels[seg] << "," // Segment
+				<< get<0>(event)/1e6 << "," // event time (us)
+				<< get<1>(event) << "," // PE count
+				<< get<3>(event) << "," // WindowWidth
+				<< get<5>(event) << "," // binWidth (1) or fineBinWidth (0)
+				<< "1\n";
 		}
 
 		// write background pulses (Event=0)
 		for (const auto& event : backgroundPulses) {
-			out << segment_labels[seg] << ", "
-				<< get<0>(event)/1e6 << ", "
-				<< get<1>(event) << ", "
-				<< get<3>(event) << ", "
-				<< get<5>(event) << ", "
-				<< "0 \n";
+			out << params["run_number"] << ","
+				<< segment_labels[seg] << ","
+				<< get<0>(event)/1e6 << ","
+				<< get<1>(event) << ","
+				<< get<3>(event) << ","
+				<< get<5>(event) << ","
+				<< "0\n";
 		}
 
 		// write window statistics (Event only)

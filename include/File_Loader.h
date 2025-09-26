@@ -25,6 +25,7 @@ typedef struct
     std::string output_folder;
     std::string runinfo_path;
     std::string good_runs_path;
+    std::string coinc_results_path;
     int start_run;
     int end_run;
     bool save_to_txt;

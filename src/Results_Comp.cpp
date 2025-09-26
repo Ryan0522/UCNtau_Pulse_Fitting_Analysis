@@ -5,6 +5,8 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <limits>
+#include <cmath>
 #include <cctype>
 #include <map>
 #include <limits>
@@ -24,6 +26,43 @@
 
 using namespace std;
 namespace fs = std::filesystem;
+
+static inline std::string fmt_r(double r) {
+    if (std::isnan(r)) return "n/a";
+    char buf[64]; std::snprintf(buf, sizeof(buf), "%.7f", r); // 7 digits after decimal
+    return std::string(buf);
+}
+
+static inline double pearson_r(const TGraph* g) {
+    const int n = g ? g->GetN() : 0;
+    if (n < 2) return std::numeric_limits<double>::quiet_NaN();
+    double sx=0, sy=0, x, y;
+    for (int i=0;i<n;++i) { g->GetPoint(i, x, y); sx += x; sy += y; }
+    const double mx = sx / n, my = sy / n;
+    double sxx=0, syy=0, sxy=0;
+    for (int i=0;i<n;++i) { 
+        g->GetPoint(i, x, y);
+        const double dx = x - mx, dy = y - my;
+        sxx += dx*dx; syy += dy*dy; sxy += dx*dy;
+    }
+    if (sxx <= 0 || syy <= 0) return std::numeric_limits<double>::quiet_NaN();
+    return sxy / std::sqrt(sxx * syy);
+}
+
+static inline double pearson_r_vec(const std::vector<double>& xs, const std::vector<double>& ys) {
+    const int n = (int)std::min(xs.size(), ys.size());
+    if (n < 2) return std::numeric_limits<double>::quiet_NaN();
+    double sx=0, sy=0;
+    for (int i=0;i<n;++i) { sx += xs[i]; sy += ys[i]; }
+    const double mx = sx / n, my = sy / n;
+    double sxx=0, syy=0, sxy=0;
+    for (int i=0;i<n;++i) {
+        const double dx = xs[i] - mx, dy = ys[i] - my;
+        sxx += dx*dx; syy += dy*dy; sxy += dx*dy;
+    }
+    if (sxx <= 0 || syy <= 0) return std::numeric_limits<double>::quiet_NaN();
+    return sxy / std::sqrt(sxx * syy);
+}
 
 static inline std::string trim(const std::string& s) {
     auto a = s.find_first_not_of(" \t\r\n");
@@ -59,8 +98,9 @@ vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const str
         }
 
         std::stringstream ss(line);
-        string seg_s, time_s, pe_s, ww_s, fbw_s, evt_s;
+        string run_s, seg_s, time_s, pe_s, ww_s, fbw_s, evt_s;
 
+        if (!std::getline(ss, run_s, ',')) continue;
         if (!std::getline(ss, seg_s, ',')) continue;
         if (!std::getline(ss, time_s, ',')) continue;
         if (!std::getline(ss, pe_s, ','))   continue;
@@ -68,13 +108,14 @@ vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const str
         if (!std::getline(ss, fbw_s, ','))   continue;
         if (!std::getline(ss, evt_s, ','))   continue;
 
-        seg_s  = trim(seg_s);
+        int run = std::stoi(run_s);
+        seg_s = trim(seg_s);
         double t_us = std::stod(time_s);
         double pe = std::stod(pe_s);
         double ww = std::stod(ww_s);
         bool fbw = trim(fbw_s) == "1"; // fbw is 1
         bool evt = trim(evt_s) == "1"; // event is 1
-        rows.emplace_back(seg_s, t_us, pe, ww, fbw, evt, ht);
+        rows.emplace_back(run, seg_s, t_us, pe, ww, fbw, evt, ht);
     }
     return rows;
 }
@@ -95,17 +136,19 @@ vector<CoincRow> load_coinc_results(int run_number, std::string epoch, const str
         if (line.empty()) continue;
 
         std::stringstream ss(line);
-        string seg_s, time_s, pe_s, evt_s;
+        string run_s, seg_s, time_s, pe_s, evt_s;
+        if (!std::getline(ss, run_s, ',')) continue;
         if (!std::getline(ss, seg_s, ',')) continue;
         if (!std::getline(ss, time_s, ',')) continue;
         if (!std::getline(ss, pe_s, ',')) continue;
         if (!std::getline(ss, evt_s, ',')) continue;
 
+        int run = std::stoi(run_s);
         string seg = trim(seg_s);
         double time_val = std::stod(time_s);
         int pe_val = std::stoi(pe_s);
         bool evt = trim(evt_s) == "1";; // event is 1
-        rows.emplace_back(seg, time_val, pe_val, evt, ht);
+        rows.emplace_back(run, seg, time_val, pe_val, evt, ht);
     }
     return rows;
 }
@@ -133,6 +176,7 @@ std::vector<WindowRow> load_window_stats(int run_number, std::string epoch, cons
         while (std::getline(ss, tok, ',')) col.push_back(trim(tok));
         if (col.size() < 8) continue;
         WindowRow r;
+        r.run = run_number;
         r.segment = col[0];
         r.windowIndex = std::stoi(col[1]);
         r.start = std::stod(col[2]);
@@ -188,6 +232,74 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
 
     for (auto& kv : hmap) delete kv.second;
 }
+
+static void plot_window_sep(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix) 
+{
+    if (ws_all.size() < 2) return;
+
+    std::map<std::string, std::vector<WindowRow>> by_seg;
+    for (const auto& w : ws_all) by_seg[w.segment].push_back(w);
+    for (auto& kv : by_seg) {
+        auto& v = kv.second;
+        std::sort(v.begin(), v.end(), [](const WindowRow& a, const WindowRow& b){ return a.start < b.start; });
+    }
+
+    static int uid = 0; ++uid;
+    TCanvas* c = new TCanvas(Form("c_winsep_seg_%d", uid), "Window separation by segment", 1200, 900);
+    c->Divide(2,2);
+
+    std::vector<std::string> segs = {"12","34","56","78"};
+    int pad = 1;
+
+    for (const auto& seg : segs) {
+        c->cd(pad++); 
+        gPad->SetGrid();
+        gPad->SetLogx();
+
+        const auto it = by_seg.find(seg);
+        const auto& W = it->second;
+
+        std::vector<double> seps; seps.reserve(W.size()-1);
+        double mn, mx;
+        {
+            double sep0 = W[1].start - W[0].end;
+            mn = mx = sep0;
+            for (size_t i = 0; i + 1 < W.size(); ++i) {
+                if (W[i+1].run != W[i].run) continue;
+                double sep = W[i+1].start - W[i].end;
+                if (sep < 0) std::cout << "[winsep] Overlap in seg " << seg
+                                       << " at windowIndex " << W[i].windowIndex << "\n";
+                seps.push_back(sep);
+                mn = std::min(mn, sep);
+                mx = std::max(mx, sep);
+            }
+        }
+        
+        // build log-spaced bin edges
+        int nbins = 50; // or tune
+        double logmin = std::log10(mn * 0.9);
+        double logmax = std::log10(mx * 1.1);
+        std::vector<double> edges(nbins+1);
+        for (int i=0; i<=nbins; ++i) {
+            edges[i] = std::pow(10, logmin + (logmax-logmin)*i/nbins);
+        }
+
+        TH1D* h = new TH1D(Form("h_winsep_%s_%d", seg.c_str(), uid),
+                           Form("seg %s (min #Delta t = %.3g s);#Delta t = start_{i+1} - end_{i} (s);#windows (log)", 
+                                seg.c_str(), mn),
+                           nbins, edges.data());
+        h->SetLineWidth(2);
+        h->GetXaxis()->SetMoreLogLabels();
+        h->GetXaxis()->SetNoExponent();
+        for (double v : seps) h->Fill(v);
+        h->Draw("HIST");
+    }
+
+    c->Modified(); c->Update();
+    c->SaveAs((out_png_prefix + "_window_separation_bySeg.png").c_str());
+    delete c;
+}
+
 
 static void plot_time_ev_byNp(const std::vector<PulseRow>& pulses,
                                       const std::vector<WindowRow>& ws_all,
@@ -249,13 +361,13 @@ static void plot_time_ev_byNp(const std::vector<PulseRow>& pulses,
 
     // Fill from EVENT pulses, aligned to their HT anchor
     for (const auto& r : pulses) {
-        if (!std::get<5>(r)) continue;  // Event only
-        const std::string& seg = std::get<0>(r);
-        int ht = (int)std::get<6>(r);
+        if (!std::get<6>(r)) continue;  // Event only
+        const std::string& seg = std::get<1>(r);
+        int ht = (int)std::get<7>(r);
         auto itA = HT_ANCHOR.find(ht);
         if (itA == HT_ANCHOR.end()) continue;
 
-        double t_abs = std::get<1>(r);
+        double t_abs = std::get<2>(r);
         double t_rel = t_abs - itA->second;
         if (t_rel < 0.0 || t_rel >= 60.0) continue;
 
@@ -443,8 +555,8 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             auto seg = segs[i];
             auto h_pulse = new TH1D(("h_pulsePE_"+seg).c_str(), ("PE (seg "+seg+");PE;Counts").c_str(), 160, 0, 160);
             auto h_coinc = new TH1D(("h_coincPE_"+seg).c_str(), ("PE (seg "+seg+");PE;Counts").c_str(), 160, 0, 160);
-            for (const auto& r : pulse) if (std::get<0>(r)==seg && std::get<5>(r)) h_pulse->Fill(std::get<2>(r));
-            for (const auto& r : coinc) if (std::get<0>(r)==seg && std::get<3>(r)) h_coinc->Fill(std::get<2>(r));
+            for (const auto& r : pulse) if (std::get<1>(r)==seg && std::get<6>(r)) h_pulse->Fill(std::get<3>(r));
+            for (const auto& r : coinc) if (std::get<1>(r)==seg && std::get<4>(r)) h_coinc->Fill(std::get<3>(r));
             h_pulse->SetLineColor(kBlue+1);  h_pulse->SetLineWidth(2);
             h_coinc->SetLineColor(kRed+1);   h_coinc->SetLineWidth(2);
             h_pulse->Draw("HIST"); h_coinc->Draw("HIST SAME");
@@ -466,8 +578,8 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             auto seg = segs[i];
             auto h_pulse = new TH1D(("h_pulsePE_log_"+seg).c_str(), ("PE (seg "+seg+");PE;Counts").c_str(), 160, 0, 160);
             auto h_coinc = new TH1D(("h_coincPE_log_"+seg).c_str(), ("PE (seg "+seg+");PE;Counts").c_str(), 160, 0, 160);
-             for (const auto& r : pulse) if (std::get<0>(r)==seg && std::get<5>(r)) h_pulse->Fill(std::get<2>(r));
-            for (const auto& r : coinc) if (std::get<0>(r)==seg && std::get<3>(r)) h_coinc->Fill(std::get<2>(r));
+             for (const auto& r : pulse) if (std::get<1>(r)==seg && std::get<6>(r)) h_pulse->Fill(std::get<3>(r));
+            for (const auto& r : coinc) if (std::get<1>(r)==seg && std::get<4>(r)) h_coinc->Fill(std::get<3>(r));
             h_pulse->SetLineColor(kBlue+1); h_pulse->SetLineWidth(2);
             h_coinc->SetLineColor(kRed+1);  h_coinc->SetLineWidth(2);
             h_pulse->SetMinimum(0.5); h_coinc->SetMinimum(0.5);
@@ -566,15 +678,6 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
                 TH1D* hC = itC==coinc_by_seg.end() ? nullptr : itC->second;
                 if (!hP && !hC) continue;
 
-                // 1) Global check: should match your green plateau.
-                std::cout << "P/C integrals: "
-                        << hP->Integral() / hC->Integral() << "\n";
-
-                // 2) Peak-bin check: should also be ~ the green value.
-                int b = hP->GetMaximumBin();
-                std::cout << "Peak-bin P/C: "
-                        << hP->GetBinContent(b) / hC->GetBinContent(b) << "\n";
-
                 double ymax = 1.0;
                 if (hP) ymax = std::max(ymax, hP->GetMaximum());
                 if (hC) ymax = std::max(ymax, hC->GetMaximum());
@@ -614,10 +717,10 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         // Return t_rel for EVENT pulses if should keep; else nullopt
         auto mk_event_rel_pulse = [&](optional<int> only_ht) {
             return [&, only_ht](const PulseRow& r)->optional<double> {
-                if (!std::get<5>(r)) return nullopt;        // event only
-                int ht = (int)std::get<6>(r);
+                if (!std::get<6>(r)) return nullopt;        // event only
+                int ht = (int)std::get<7>(r);
                 if (only_ht && ht != *only_ht) return nullopt;
-                double t_rel = std::get<1>(r) - anchor_for_ht(ht);
+                double t_rel = std::get<2>(r) - anchor_for_ht(ht);
                 if (t_rel < 0.0 || t_rel >= 60.0) return nullopt;
                 return t_rel;
             };
@@ -625,10 +728,10 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         // Return t_rel for EVENT coinc if should keep; else nullopt
         auto mk_event_rel_coinc = [&](optional<int> only_ht) {
             return [&, only_ht](const CoincRow& r)->optional<double> {
-                if (!std::get<3>(r)) return nullopt;        // event only
-                int ht = (int)std::get<4>(r);
+                if (!std::get<4>(r)) return nullopt;        // event only
+                int ht = (int)std::get<5>(r);
                 if (only_ht && ht != *only_ht) return nullopt;
-                double t_rel = std::get<1>(r) - anchor_for_ht(ht);
+                double t_rel = std::get<2>(r) - anchor_for_ht(ht);
                 if (t_rel < 0.0 || t_rel >= 60.0) return nullopt;
                 return t_rel;
             };
@@ -636,10 +739,10 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         // Return t_rel for BG pulses if should keep; else nullopt
         auto mk_bg_rel_pulse = [&](optional<int> only_ht) {
             return [&, only_ht](const PulseRow& r)->optional<double> {
-                if (std::get<5>(r)) return nullopt;         // background only
-                int ht = (int)std::get<6>(r);
+                if (std::get<6>(r)) return nullopt;         // background only
+                int ht = (int)std::get<7>(r);
                 if (only_ht && ht != *only_ht) return nullopt;
-                double t_rel = std::get<1>(r) - anchor_for_ht(ht) - 110.0; // 110.0 is bg_start - start
+                double t_rel = std::get<2>(r) - anchor_for_ht(ht) - 110.0; // 110.0 is bg_start - start
                 if (t_rel < 0.0 || t_rel >= 60.0) return nullopt; // BG window
                 return t_rel;
             };
@@ -647,10 +750,10 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         // Return t_rel for BG coinc if should keep; else nullopt
         auto mk_bg_rel_coinc = [&](optional<int> only_ht) {
             return [&, only_ht](const CoincRow& r)->optional<double> {
-                if (std::get<3>(r)) return nullopt;         // background only
-                int ht = (int)std::get<4>(r);
+                if (std::get<4>(r)) return nullopt;         // background only
+                int ht = (int)std::get<5>(r);
                 if (only_ht && ht != *only_ht) return nullopt;
-                double t_rel = std::get<1>(r) - anchor_for_ht(ht) - 110.0; // 110.0 is bg_start - start
+                double t_rel = std::get<2>(r) - anchor_for_ht(ht) - 110.0; // 110.0 is bg_start - start
                 if (t_rel < 0.0 || t_rel >= 60.0) return nullopt; // BG window
                 return t_rel;
             };
@@ -668,14 +771,14 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
             for (const auto& r : pulse) {
                 auto t_rel = get_trel_pulse(r);
                 if (!t_rel.has_value()) continue;
-                const std::string& seg = std::get<0>(r);
+                const std::string& seg = std::get<1>(r);
                 auto it = pulse_by_seg.find(seg);
                 if (it != pulse_by_seg.end()) it->second->Fill(*t_rel);
             }
             for (const auto& r : coinc) {
                 auto t_rel = get_trel_coinc(r);
                 if (!t_rel.has_value()) continue;
-                const std::string& seg = std::get<0>(r);
+                const std::string& seg = std::get<1>(r);
                 auto it = coinc_by_seg.find(seg);
                 if (it != coinc_by_seg.end()) it->second->Fill(*t_rel);
             }
@@ -760,9 +863,9 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         double ww_min = std::numeric_limits<double>::infinity();
         double ww_max = -std::numeric_limits<double>::infinity();
         for (const auto& r : pulse) {
-            const std::string& seg = std::get<0>(r);
-            double ww   = std::get<3>(r);
-            const bool evt = std::get<5>(r);
+            const std::string& seg = std::get<1>(r);
+            double ww   = std::get<4>(r);
+            const bool evt = std::get<6>(r);
             if (!evt) continue;
             ww_by_seg[seg].push_back(ww);
             ww_min = std::min(ww_min, ww);
@@ -794,6 +897,375 @@ static void plot_comparisons(const std::vector<PulseRow>& pulse,
         delete c;
     }
 }
+
+static inline bool in_window(double t_s, double start_s, double end_s) {
+    return (t_s >= start_s - 1e-7) && (t_s < end_s); // start time within 5 us of my start_s
+}
+
+void plot_pulses_vs_coinc_by_window(const std::vector<PulseRow>& pulses,
+                                    const std::vector<CoincRow>& coincs,
+                                    const std::vector<WindowRow>& windows,
+                                    const std::string& out_png_prefix)
+{
+    if (windows.empty()) return;
+    
+    std::map<std::string, std::vector<WindowRow>> win_by_seg;
+    for (const auto& w : windows) win_by_seg[w.segment].push_back(w);
+    for (auto& kv : win_by_seg) {
+        auto& v = kv.second;
+        std::sort(v.begin(), v.end(), [](const WindowRow& a, const WindowRow& b){ return a.start < b.start; });
+    }
+
+    struct PT { int nPulse=0, nCoinc=0; };
+    std::map<std::string, std::vector<PT>> per_seg_pts;
+
+    for (auto& kv : win_by_seg) {
+        const std::string& seg = kv.first;
+        const auto& W = kv.second;
+        per_seg_pts[seg].assign(W.size(), PT{});
+
+        // Pulses
+        for (const auto& r : pulses) {
+            if (!std::get<6>(r)) continue; // Event only
+            if (std::get<1>(r) != seg) continue;
+            double t = std::get<2>(r);
+            int L = 0, R = (int)W.size();
+            while (L<R) { int M=(L+R)/2; if (W[M].start <=t) L=M+1; else R=M; }
+            int i = L-1;
+            if (i>=0 && i<(int)W.size() && in_window(t, W[i].start, W[i].end)) per_seg_pts[seg][i].nPulse++;
+        }
+
+        // Coinc
+
+        int counter = 0;
+        for (const auto& r : coincs) {
+            if (!std::get<4>(r)) continue; // Event only
+            if (std::get<1>(r) != seg) continue;
+            double t = std::get<2>(r);
+            int L = 0, R = (int)W.size();
+            while (L<R) { int M=(L+R)/2; if (W[M].start <=t) L=M+1; else R=M; }
+            int i = L-1;
+
+            auto in_win = [&](int k)->bool {
+                if (k < 0 || k >= (int)W.size()) return false;
+                return in_window(t, W[k].start, W[k].end);
+            };
+            bool binned = false;
+
+            if (in_win(i)) {
+                per_seg_pts[seg][i].nCoinc++;
+                binned = true;
+            } else if (in_win(i+1)) {
+                per_seg_pts[seg][i+1].nCoinc++;
+                binned = true;
+            }
+
+            // if (!binned) {
+            //     std::cout << std::setprecision(10) << "Not found in a window at time: " << t << "\n";
+            //     std::cout << std::setprecision(10) << "Attempted Bin: [" << W[i].start - 5e-6 << ", " << W[i].end << ")\n";
+            //     std::cout << std::setprecision(10) << "Attempted Bin 2: [" << W[i+1].start - 5e-6 << ", " << W[i+1].end << ")\n";
+            //     if (++counter > 20) throw std::runtime_error("No.");
+            // }
+        }
+    }
+
+    // by segment
+    {
+        TCanvas* c = new TCanvas("c_pulses_vs_coinc_bywin_hists", "Pulses-per-window hists (per segment)", 1200, 800);
+        c->Divide(2,2);
+
+        std::vector<std::string> segs = {"12","34","56","78"};
+        int colMine = kBlue+1;
+        int colCoin = kRed+1;
+
+        for (size_t i=0;i<segs.size();++i) {
+            const auto& seg = segs[i];
+            auto it = per_seg_pts.find(seg);
+            if (it == per_seg_pts.end()) continue;
+
+            // find max bin
+            int maxCnt = 1;
+            for (const auto& p : it->second) {
+                maxCnt = std::max(maxCnt, std::max(p.nPulse, p.nCoinc));
+            }
+
+            // build histograms of "count per window"
+            int nbins = maxCnt + 1; // bins for 0..maxCnt
+            TH1I* hMine = new TH1I(Form("hMine_%s", seg.c_str()),
+                                Form("seg %s;#pulses per window;#windows", seg.c_str()),
+                                nbins, -0.5, maxCnt + 0.5);
+            TH1I* hCoin = new TH1I(Form("hCoin_%s", seg.c_str()),
+                                Form("seg %s;#pulses per window;#windows", seg.c_str()),
+                                nbins, -0.5, maxCnt + 0.5);
+
+            for (const auto& p : it->second) {
+                hMine->Fill(p.nPulse);
+                hCoin->Fill(p.nCoinc);
+            }
+
+            hMine->SetLineColor(colMine);
+            hMine->SetLineWidth(2);
+            hCoin->SetLineColor(colCoin);
+            hCoin->SetLineWidth(2);
+
+            c->cd((int)i+1); gPad->SetGrid();
+            // draw with y-range that fits both
+            int ymax = std::max(hMine->GetMaximum(), hCoin->GetMaximum());
+            hMine->SetMaximum(ymax * 1.15);
+            hMine->Draw("HIST");
+            hCoin->Draw("HIST SAME");
+
+            TLegend* leg = new TLegend(0.62, 0.72, 0.88, 0.88);
+            leg->SetBorderSize(0); leg->SetFillStyle(0);
+            leg->AddEntry(hMine, "my pulses", "l");
+            leg->AddEntry(hCoin, "coinc pulses", "l");
+            leg->Draw();
+        }
+
+        c->SaveAs((out_png_prefix + "_byWindow_myVsCoinc.png").c_str());
+        delete c;
+    }
+
+    // overall combined (all segments merged) hist overlay: my vs coinc
+    {
+        TCanvas* c = new TCanvas("c_pulses_vs_coinc_bywin_overlay_hists", "Pulses-per-window hists (overall)", 1000, 700);
+        c->SetGrid();
+
+        std::vector<int> allMine, allCoinc;
+        int maxCnt = 1;
+        for (const auto& kv : per_seg_pts) {
+            for (const auto& p : kv.second) {
+                allMine.push_back(p.nPulse);
+                allCoinc.push_back(p.nCoinc);
+                maxCnt = std::max(maxCnt, std::max(p.nPulse, p.nCoinc));
+            }
+        }
+
+        int nbins = maxCnt + 1;
+        TH1I* hMine = new TH1I("hMine_all", "All segments;#pulses per window;#windows",
+                            nbins, -0.5, maxCnt + 0.5);
+        TH1I* hCoin = new TH1I("hCoin_all", "All segments;#pulses per window;#windows",
+                            nbins, -0.5, maxCnt + 0.5);
+
+        for (int v : allMine) hMine->Fill(v);
+        for (int v : allCoinc) hCoin->Fill(v);
+
+        int colMine = kBlue+1, colCoin = kRed+1;
+        hMine->SetLineColor(colMine); hMine->SetLineWidth(3);
+        hCoin->SetLineColor(colCoin); hCoin->SetLineWidth(3);
+
+        int ymax = std::max(hMine->GetMaximum(), hCoin->GetMaximum());
+        hMine->SetMaximum(ymax * 1.20);
+
+        hMine->Draw("HIST");
+        hCoin->Draw("HIST SAME");
+
+        TLegend leg(0.62, 0.72, 0.88, 0.88); leg.SetBorderSize(0); leg.SetFillStyle(0);
+        leg.AddEntry(hMine, "my pulses (all segs)", "l");
+        leg.AddEntry(hCoin, "coinc pulses (all segs)", "l");
+        leg.Draw();
+
+        c->SaveAs((out_png_prefix + "_byWindow_myVsCoinc_overlay.png").c_str());
+        delete c;
+    }
+}
+
+static bool load_RDE_table(const std::string& path,
+                           std::map<int, std::map<std::string, double>>& rde_by_run // run -> { "12":val, ... }
+                           )
+{
+    std::ifstream in(path);
+    if (!in) { std::cerr << "[RDE] cannot open: " << path << "\n"; return false; }
+
+    std::string line;
+    if (!std::getline(in, line)) { std::cerr << "[RDE] empty file: " << path << "\n"; return false; }
+
+    std::vector<std::string> hdr;
+    {
+        std::stringstream ss(line);
+        for (std::string tok; std::getline(ss, tok, ','); ) {
+            auto a = tok.find_first_not_of(" \t\r\n");
+            auto b = tok.find_last_not_of(" \t\r\n");
+            hdr.push_back(a==std::string::npos ? "" : tok.substr(a, b-a+1));
+        }
+    }
+
+    auto idx_of = [&](const std::string& name)->int {
+        for (size_t i=0;i<hdr.size();++i) if (hdr[i]==name) return (int)i;
+        return -1;
+    };
+
+    const int col_run      = idx_of("Run Number");
+    const int col_un12rde  = idx_of("Un12 RDE");
+    const int col_un34rde  = idx_of("Un34 RDE");
+    const int col_un1112rde= idx_of("Un1112 RDE");
+    const int col_un1314rde= idx_of("Un1314 RDE");
+
+    if (col_run < 0) { std::cerr << "[RDE] 'Run Number' column not found\n"; return false; }
+
+    // read rows
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        std::stringstream ss(line);
+        std::vector<std::string> cols;
+        for (std::string tok; std::getline(ss, tok, ','); ) {
+            auto a = tok.find_first_not_of(" \t\r\n");
+            auto b = tok.find_last_not_of(" \t\r\n");
+            cols.push_back(a==std::string::npos ? "" : tok.substr(a, b-a+1));
+        }
+        if ((int)cols.size() <= col_run) continue;
+
+        int run;
+        try { run = std::stoi(cols[col_run]); } catch(...) { continue; }
+        auto& m = rde_by_run[run];
+
+        auto fetch = [&](int idx)->double{
+            if (idx < 0 || (int)cols.size() <= idx || cols[idx].empty()) return 0.0;
+            try { return std::stod(cols[idx]); } catch(...) { return 0.0; }
+        };
+
+        if (col_un12rde   >= 0) m["12"]   = fetch(col_un12rde);
+        if (col_un34rde   >= 0) m["34"]   = fetch(col_un34rde);
+        if (col_un1112rde >= 0) m["56"] = fetch(col_un1112rde);
+        if (col_un1314rde >= 0) m["78"] = fetch(col_un1314rde);
+    }
+    return true;
+}
+
+void plot_event_count_corr_vs_RDE(const std::vector<PulseRow>& all_pulses,
+                                  const std::string& runinfo_csv_path,
+                                  const std::string& out_png_prefix)
+{
+    std::map<int, std::map<std::string,double>> RDE;
+    if (!load_RDE_table(runinfo_csv_path, RDE)) return;
+
+    std::vector<std::string> segs = {"12","34","56","78"};
+    int colors[4] = {kBlue+1, kRed+1, kGreen+2, kMagenta+1};
+
+    // ------------------------------------------------
+    // Count my events: run -> seg -> count
+    // ------------------------------------------------
+    std::map<int,std::map<std::string,int>> my_counts;
+    for (const auto& r : all_pulses) {
+        if (!std::get<6>(r)) continue;           // Event flag
+        int run = std::get<0>(r);        // run number
+        std::string seg = std::get<1>(r);        // segment
+        my_counts[run][seg] += 1;
+    }
+
+    // -----------------------
+    // 1) Per-segment scatter
+    // -----------------------
+    TCanvas* c1 = new TCanvas("c_my_vs_rde_byseg", "My vs RDE (per segment)", 1000, 700);
+    c1->SetGrid();
+
+    TLegend leg1(0.62, 0.16, 0.88, 0.38); leg1.SetBorderSize(0); leg1.SetFillStyle(0);
+
+    std::map<std::string,TGraph*> g_by_seg;
+    for (size_t i=0;i<segs.size();++i) {
+        g_by_seg[segs[i]] = new TGraph();
+        g_by_seg[segs[i]]->SetMarkerStyle(20);
+        g_by_seg[segs[i]]->SetMarkerSize(0.8);
+        g_by_seg[segs[i]]->SetMarkerColor(colors[i]);
+    }
+
+    std::vector<double> xs_all, ys_all;
+
+    for (const auto& kv : my_counts) {
+        int run = kv.first;
+        auto itR = RDE.find(run);
+        if (itR == RDE.end()) continue;
+
+        for (const auto& s : segs) {
+            double x = kv.second.count(s) ? kv.second.at(s) : 0;
+            double y = (itR->second.count(s) ? itR->second.at(s) : 0.0);
+            int idx = g_by_seg[s]->GetN();
+            g_by_seg[s]->SetPoint(idx, x, y);
+
+            xs_all.push_back(x);
+            ys_all.push_back(y);
+        }
+    }
+
+    double xmin=0, ymin=0, xmax=1, ymax=1;
+    for (auto& s : segs) {
+        if (g_by_seg[s]->GetN()==0) continue;
+        double gx0,gy0,gx1,gy1;
+        g_by_seg[s]->ComputeRange(gx0,gy0,gx1,gy1);
+        xmin = std::min(xmin,gx0);
+        ymin = std::min(ymin,gy0);
+        xmax = std::max(xmax,gx1);
+        ymax = std::max(ymax,gy1);
+    }
+    if (xmax<=0) xmax=1;
+    if (ymax<=0) ymax=1;
+
+    const double r_all = pearson_r_vec(xs_all, ys_all);
+
+    TH2D* fr1 = new TH2D("fr_my_vs_rde_byseg",
+                        Form("Per-segment: My EVENTs vs RDE (r_all=%s);#my events (seg);#RDE events (seg)",
+                            fmt_r(r_all).c_str()),
+                        100, 0, xmax*1.1+1,
+                        100, 0, ymax*1.1+1);
+    fr1->SetStats(0); fr1->Draw();
+
+    for (size_t i=0;i<segs.size();++i) {
+        auto* g = g_by_seg[segs[i]];
+        g->Draw("P SAME");
+        const double r_seg = pearson_r(g);
+        leg1.AddEntry(g, Form("seg %s (r=%s)", segs[i].c_str(), fmt_r(r_seg).c_str()), "p");
+    }
+
+    double dmax = std::max(xmax,ymax);
+    TLine diag1(0,0,dmax,dmax);
+    diag1.SetLineStyle(2); diag1.SetLineColor(kGray+2); diag1.Draw("SAME");
+
+    leg1.Draw();
+    c1->SaveAs((out_png_prefix + "_myEvent_vs_RDE_bySeg.png").c_str());
+    delete c1;
+
+    // -----------------------
+    // 2) Overall scatter
+    // -----------------------
+    TGraph* g_tot = new TGraph();
+    g_tot->SetMarkerStyle(21);
+    g_tot->SetMarkerSize(1.0);
+    g_tot->SetMarkerColor(kBlue+1);
+
+    for (const auto& kv : my_counts) {
+        int run = kv.first;
+        auto itR = RDE.find(run);
+        if (itR == RDE.end()) continue;
+
+        int my_sum = 0; for (auto& kv2 : kv.second) my_sum += kv2.second;
+        double rde_sum = 0.0; for (auto& kv2 : itR->second) rde_sum += kv2.second;
+
+        int idx = g_tot->GetN();
+        g_tot->SetPoint(idx, my_sum, rde_sum);
+    }
+
+    double x0,y0,x1,y1;
+    g_tot->ComputeRange(x0,y0,x1,y1);
+
+    const double r_tot = pearson_r(g_tot);
+
+    TCanvas* c2 = new TCanvas("c_my_vs_rde_total", "My vs RDE (total)", 900, 700);
+    c2->SetGrid();
+    TH2D* fr2 = new TH2D("fr_my_vs_rde_total",
+                        Form("Total: My EVENTs vs RDE (r=%s);#my events (total);#RDE events (total)",
+                            fmt_r(r_tot).c_str()),
+                        1, 0, x1*1.1+1, 1, 0, y1*1.1+1);
+    fr2->SetStats(0); fr2->Draw();
+
+
+    g_tot->Draw("P SAME");
+    TLine diag2(0,0,std::max(x1,y1),std::max(x1,y1));
+    diag2.SetLineStyle(2); diag2.SetLineColor(kGray+2); diag2.Draw("SAME");
+
+    c2->SaveAs((out_png_prefix + "_myEvent_vs_RDE_total.png").c_str());
+    delete c2;
+}
+
 
 int main(int argc, char **argv) {
 	Config cfg;
@@ -889,6 +1361,8 @@ int main(int argc, char **argv) {
         plot_comparisons(pulse, coinc, out_prefix, cfg);
         plot_neglog_hist(ws, out_prefix, 100);
         plot_obs_exp_corr(ws, out_prefix);
+        plot_window_sep(ws, out_prefix);
+        plot_pulses_vs_coinc_by_window(pulse, coinc, ws, out_prefix);
 
         gDirectory->GetList()->Clear();       // clear objects in current directory
         gROOT->GetListOfCanvases()->Clear();  // drop canvases->Reset();
@@ -907,7 +1381,9 @@ int main(int argc, char **argv) {
     plot_comparisons(all_pulses, all_coincs, out_prefix, cfg, true);
     plot_neglog_hist(all_windows, out_prefix, 500);
     plot_obs_exp_corr(all_windows, out_prefix);
+    plot_window_sep(all_windows, out_prefix);
     plot_time_ev_byNp(all_pulses, all_windows, out_prefix, cfg);
+    plot_event_count_corr_vs_RDE(all_pulses, cfg.coinc_results_path, out_prefix);
 
 	return 0;
 }
