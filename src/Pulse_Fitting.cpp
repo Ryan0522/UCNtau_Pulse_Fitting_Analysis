@@ -645,7 +645,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         }
 
         // if (sum >= static_cast<int>(max(1.0, std::ceil(pe_min_thresh_ / 2.0)))) {
-        if (sum >= (int)pe_min_thresh_) {
+        if (sum >= (int)pe_min_thresh_ || true) { // Changed from 5.0 to 2 // Updated Oct 1 2025: Try not filtering out at first. 
             peGuess.push_back(sum);
             dtGuess.push_back(idx);
         }

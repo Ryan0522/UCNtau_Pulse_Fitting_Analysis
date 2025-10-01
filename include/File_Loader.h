@@ -21,6 +21,7 @@ typedef struct
 
 typedef struct 
 {
+    int year;
     std::string data_folder;
     std::string output_folder;
     std::string runinfo_path;
@@ -73,13 +74,15 @@ std::string ensureTrailingSlash(const std::string& folder);
 
 std::vector<EventList> processfile( // Not writing to txt
     std::string data_folder,
-    std::string runnum
+    std::string runnum,
+    int year=2022
 );
 
 void processfile( // Writing to txt
     std::string data_folder,
     std::string output_folder,
-    std::string runnum
+    std::string runnum,
+    int year=2022
 );
 
 Config load_config(int argc, char** argv, const std::string& default_cfg = "./config/default_config.json");

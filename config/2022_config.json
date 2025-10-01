@@ -9,7 +9,7 @@
     "start_run": 26308,
     "end_run": 31888,
     "save_to_txt": false,
-    "epoch": 2,
+    "epoch": 6,
     
     "binWidth": 0.5,
     "fineBinWidth": 0.01,

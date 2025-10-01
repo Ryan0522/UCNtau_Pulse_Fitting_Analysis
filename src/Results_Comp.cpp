@@ -1253,7 +1253,10 @@ void plot_event_count_corr_vs_RDE(const std::vector<PulseRow>& all_pulses,
         if (itR == RDE.end()) continue;
 
         int my_sum = 0; for (auto& kv2 : kv.second) my_sum += kv2.second;
-        double rde_sum = 0.0; for (auto& kv2 : itR->second) rde_sum += kv2.second;
+        double rde_sum = 0.0; 
+        for (auto& kv2 : itR->second) {
+            if (kv2.first != "RHDD") rde_sum += kv2.second;
+        }
 
         int idx = g_tot->GetN();
         g_tot->SetPoint(idx, my_sum, rde_sum);
@@ -1467,7 +1470,7 @@ void plot_lifetime(const std::vector<PulseRow>& all_pulses,
 
     const std::string csv_counts_path = out_png_prefix + "_norm_counts_by_run_seg.csv";
     std::ofstream csv_counts(csv_counts_path);
-    csv_counts << "PE,run,seg,norm_count,hold_time\n";
+    csv_counts << "PE,run,seg,count,RHDD,norm_count,hold_time\n";
 
     std::map<int, std::vector<std::pair<double, double>>> tau_all; // pe -> (tau, dtau) pairs (12, 34, 56, 78, ovr)
     for(int pe_thres = 5; pe_thres < 50; ++pe_thres) {
@@ -1478,15 +1481,29 @@ void plot_lifetime(const std::vector<PulseRow>& all_pulses,
             double ht = std::numeric_limits<double>::quiet_NaN();
             lifefit::get_hold_time(params, run, ht); // ok if missing; stays NaN
 
+            double rdhh = std::numeric_limits<double>::quiet_NaN();
+            if (auto rit = RDE.find(run); rit != RDE.end()) {
+                auto it = rit->second.find("RHDD");
+                rdhh = it->second;
+            }
+
+            auto run_raw_it = my_counts.find(run);
+            const auto* segmap_raw = (run_raw_it != my_counts.end()) ? &run_raw_it->second : nullptr;
+
             for (const auto& seg : segs) {
                 auto it = segmap.find(seg);
                 if (it == segmap.end()) continue;
                 const double y = it->second; // RHDD-normalized net counts (event-bg)
                 if (!std::isfinite(y)) continue;
-
+                double count_raw = std::numeric_limits<double>::quiet_NaN();
+                if (segmap_raw) {
+                    if (auto itr = segmap_raw->find(seg); itr != segmap_raw->end()) count_raw = itr->second;
+                }
                 csv_counts << pe_thres << ','
                            << run      << ','
                            << seg      << ','
+                           << count_raw<< ','
+                           << rdhh     << ','
                            << y        << ','
                            << ht       << '\n';
             }
@@ -1689,13 +1706,17 @@ int main(int argc, char **argv) {
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 	vector<EventList> run_data;
 	
+    int year = cfg.year;
     int epoch_start = startrun;
 	int epoch_end = endrun;
 
-	if (epoch_json.contains(epoch)) {
-		const auto& e = epoch_json[epoch];
-		epoch_start = e["start_run_number"].get<int>();
-		epoch_end = e["end_run_number"].get<int>();
+	if (epoch_json.contains(std::to_string(year))) {
+		const auto& epoch_year = epoch_json[std::to_string(year)];
+		if (epoch_year.contains(epoch)) {
+			const auto& e = epoch_year[epoch];
+			epoch_start = e["start_run_number"].get<int>();
+			epoch_end = e["end_run_number"].get<int>();
+		}
 	}
 
     string out_prefix;

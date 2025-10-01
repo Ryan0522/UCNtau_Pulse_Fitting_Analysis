@@ -17,6 +17,7 @@ using namespace std;
 namespace fs = std::filesystem;
 
 std::ostream& operator<<(std::ostream& os, const Config& c) {
+	os << "year               = " << c.year << "\n";
     os << "data_folder        = " << c.data_folder << "\n";
     os << "output_folder      = " << c.output_folder << "\n";
     os << "runinfo_path       = " << c.runinfo_path << "\n";
@@ -203,9 +204,16 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	double start = (double)params["fill_time"] + (double)params["hold_time"] + (double)params["clean_time"] + 40;
 	double stop = start + 60;
 	double bg_start = stop + 50;
-	
-	vector<string> segment_labels = {"12", "34", "56", "78"};
-	vector<int> seg_ids = {12, 34, 56, 78};
+
+	int year = cfg.year;
+	vector<string> segment_labels; vector<int>seg_ids;
+	if (year == 2022) {
+		segment_labels = {"12", "34", "56", "78"};
+		seg_ids = {12, 34, 56, 78};
+	} else {
+		segment_labels = {"12"};
+		seg_ids = {12};
+	}
 	string pulses_file = output_folder + "results/epoch_" + to_string(cfg.epoch) + "/PulseAnalysis_" + to_string(params["run_number"]) + ".csv";
 	string windows_file = output_folder + "results/epoch_" + to_string(cfg.epoch) + "/PulseWindowStats_" + to_string(params["run_number"]) + ".csv";
 
@@ -345,13 +353,17 @@ int main(int argc, char **argv) {
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 	vector<EventList> run_data;
 	
+	int year = cfg.year;
 	int epoch_start = startrun;
 	int epoch_end = endrun;
 
-	if (epoch_json.contains(epoch)) {
-		const auto& e = epoch_json[epoch];
-		epoch_start = e["start_run_number"].get<int>();
-		epoch_end = e["end_run_number"].get<int>();
+	if (epoch_json.contains(std::to_string(year))) {
+		const auto& epoch_year = epoch_json[std::to_string(year)];
+		if (epoch_year.contains(epoch)) {
+			const auto& e = epoch_year[epoch];
+			epoch_start = e["start_run_number"].get<int>();
+			epoch_end = e["end_run_number"].get<int>();
+		}
 	}
 
 	if (save_to_txt) {
@@ -377,10 +389,10 @@ int main(int argc, char **argv) {
 		if (params.contains(run) && params[run]["run_type"] == "production") {
 			if (save_to_txt) {
 				// convert ROOT -> txt for this run
-				processfile(data_folder, output_folder, run);
+				processfile(data_folder, output_folder, run, year);
 			} else {
 				// analyze this run and write PulseAnalysis_<run>.csv
-				run_data = processfile(data_folder, run);
+				run_data = processfile(data_folder, run, year);
 				if (run_data.empty()) {
 					cerr << "No data found for run " << run << ". Skipping analysis." << endl;
 					continue;

@@ -15,10 +15,12 @@ using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 std::ostream& operator<<(std::ostream& os, const Config& c) {
+	os << "year               = " << c.year << "\n";
     os << "data_folder        = " << c.data_folder << "\n";
     os << "output_folder      = " << c.output_folder << "\n";
     os << "runinfo_path       = " << c.runinfo_path << "\n";
     os << "good_runs_path     = " << c.good_runs_path << "\n";
+	os << "coinc_results_path = " << c.coinc_results_path << "\n";
     os << "start_run          = " << c.start_run << "\n";
     os << "end_run            = " << c.end_run << "\n";
     os << "save_to_txt        = " << std::boolalpha << c.save_to_txt << "\n";
@@ -31,13 +33,14 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
     os << "pdf_csv_path       = " << c.pdf_csv_path << "\n";
     os << "good_runs_count    = " << c.good_runs_set.size() << "\n";
 
-	os << "seeding_window     = " << c.seeding_window << "\n";
+	os << "seeding_window_us  = " << c.seeding_window_us << "\n";
     os << "pe_min_thresh      = " << c.pe_min_thresh << "\n";
 
     os << "shift_us           = " << c.shift_us << "\n";
     os << "seed_pe_default    = " << c.seed_pe_default << "\n";
     os << "gradient_threshold = " << c.gradient_threshold << "\n";
     os << "guard_bin          = " << c.guard_bin << "\n";
+	os << "cluster_close_us   = " << c.cluster_close_us << "\n";
 
     os << "plot_fits          = " << std::boolalpha << c.plot_fits << "\n";
     os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
@@ -48,6 +51,11 @@ std::ostream& operator<<(std::ostream& os, const Config& c) {
 
 	os << "use_coinc          = " << std::boolalpha << c.use_coinc << "\n";
 	os << "coinc_win_us       = " << c.coinc_win_us << "\n";
+	os << "coinc_seed_pe_min  = " << c.coinc_seed_pe_min << "\n";
+
+	os << "debug              = " << c.debug << "\n";
+	os << "debug_window_index = " << c.debug_window_index << "\n";
+	os << "debug_segment_id   = " << c.debug_segment_id << "\n";
 
     return os;
 }
@@ -141,18 +149,28 @@ int main(int argc, char **argv) {
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 
-    std::vector<std::string> segment_labels = {"12", "34", "56", "78"};
     std::vector<std::vector<double>> pulse_tails(4, vector<double>(10000, 0.0)); // 100us @ 0.01us/bin
     int is_valid = 0;
     std::vector<EventList> run_data;
 
+    int year = cfg.year;
     int epoch_start = startrun;
 	int epoch_end = endrun;
 
-	if (epoch_json.contains(epoch)) {
-		const auto& e = epoch_json[epoch];
-		epoch_start = e["start_run_number"].get<int>();
-		epoch_end = e["end_run_number"].get<int>();
+    std::vector<std::string> segment_labels;
+    if (year == 2022) {
+        segment_labels = {"12", "34", "56", "78"};
+    } else {
+        segment_labels = {"12"};
+    }
+
+	if (epoch_json.contains(std::to_string(year))) {
+		const auto& epoch_year = epoch_json[std::to_string(year)];
+		if (epoch_year.contains(epoch)) {
+			const auto& e = epoch_year[epoch];
+			epoch_start = e["start_run_number"].get<int>();
+			epoch_end = e["end_run_number"].get<int>();
+		}
 	}
 
     for (int z = startrun; z < endrun; z++) {
@@ -184,7 +202,7 @@ int main(int argc, char **argv) {
 
             for (size_t seg = 0; seg < run_data.size(); ++seg) {
                 // fit pulses on this segment to identify neutron events
-                Pulse_Fitting fitter(run_data[seg]);
+                Pulse_Fitting fitter(run_data[seg], start);
                 fitter.initFromConfig(cfg);
                 fitter.setSegmentId(stoi(segment_labels[seg]));
                 fitter.setConfigKnobs(cfg.shift_us, cfg.seed_pe_default, cfg.gradient_threshold, cfg.guard_bin);

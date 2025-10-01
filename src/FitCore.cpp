@@ -230,6 +230,14 @@ static double negLogL_core(const std::vector<double>& params,
     return -poissonLogL(y, expv);
 }
 
+static inline double clamp_inside(double v, double lo, double hi) {
+    if (!(lo < hi)) return v;
+    const double eps = 0.5; // Magic number
+    if (v <= lo) return std::nextafter(lo + eps, hi);
+    if (v >= hi) return std::nextafter(hi - eps, lo);
+    return v;
+}
+
 FitResult fit_n_pulses_bobyqa(
     const FitProblem& prob,
     int nPulses,
@@ -243,8 +251,12 @@ FitResult fit_n_pulses_bobyqa(
     if (nPulses <= 0) return out;
 
     std::vector<double> x; x.reserve(2*nPulses);
-    x.insert(x.end(), initPE.begin(), initPE.begin()+nPulses);
-    x.insert(x.end(), initDT.begin(), initDT.begin()+nPulses);
+    for (int i = 0; i < nPulses; ++i) {
+        x.push_back( clamp_inside(initPE[i], peMin, peMax) );
+    }
+    for (int i = 0; i < nPulses; ++i) {
+        x.push_back( clamp_inside(initDT[i], dtMin, dtMax) );
+    }
 
     std::vector<double> lb, ub; lb.reserve(2*nPulses); ub.reserve(2*nPulses);
     for (int i=0;i<nPulses;++i){ lb.push_back(peMin); ub.push_back(peMax); }

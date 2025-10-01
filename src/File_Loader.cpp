@@ -19,7 +19,7 @@ string ensureTrailingSlash(const string& folder) {
 }
 
 // process ROOT filename for this run and return PE timestamps for each PMT pair
-vector<EventList> processfile(string data_folder, string runnum) {
+vector<EventList> processfile(string data_folder, string runnum, int year) {
 	
 	// build ROOT filename (import) for this run
 	string part1 = "processed_output_";
@@ -89,14 +89,14 @@ vector<EventList> processfile(string data_folder, string runnum) {
     {
 		if (tmcs_0->GetEntry(i) <= 0) continue;
 		if (evt0.channel == 1 || evt0.channel == 2) {PMT12.push_back(evt0);}
-		else if (evt0.channel == 3 || evt0.channel == 4) {PMT34.push_back(evt0);}
+		else if ((evt0.channel == 3 || evt0.channel == 4) && year == 2022) {PMT34.push_back(evt0);}
 
     }
 
 	Long64_t n1 = tmcs_1->GetEntries();
     for (Long64_t j = 0; j < n1; j++)
     {
-		if (tmcs_1->GetEntry(j) <= 0) continue;
+		if ((tmcs_1->GetEntry(j) <= 0) || year != 2022) continue;
         if (evt1.channel == 11 || evt1.channel == 12) {PMT1112.push_back(evt1);}
 		else if (evt1.channel == 13 || evt1.channel == 14) {PMT1314.push_back(evt1);}
     }
@@ -104,17 +104,19 @@ vector<EventList> processfile(string data_folder, string runnum) {
 	// bundle into vector in fixed segment order
 	vector<EventList> result;
 	result.push_back(PMT12);
-	result.push_back(PMT34);
-	result.push_back(PMT1112);
-	result.push_back(PMT1314);
+	if (year == 2022) {
+		result.push_back(PMT34);
+		result.push_back(PMT1112);
+		result.push_back(PMT1314);
+	}
 	return result;
 }
 
 // same as above, but writes to file
-void processfile(string data_folder, string output_folder, string runnum) {
+void processfile(string data_folder, string output_folder, string runnum, int year) {
 
 	// load event lists and dump to text (CSV-like) per segment
-	vector<EventList> result = processfile(data_folder, runnum);
+	vector<EventList> result = processfile(data_folder, runnum, year);
 	EventList PMT12, PMT34, PMT1112, PMT1314;
 
 	if (result.size() == 4) {
@@ -171,7 +173,7 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 	Config c;
 
 	// read JSON config (if not provided then use default)
-	std::string cfg_path = (argc == 2 ? argv[1] : default_cfg);
+	std::string cfg_path = (argc == 4 ? argv[1] : default_cfg);
 	json cfg;
 	{
 		std::ifstream f(cfg_path);
@@ -179,20 +181,20 @@ Config load_config(int argc, char** argv, const std::string& default_cfg) {
 		f >> cfg;
 	}
 
-	if (argc == 3) {
+	if (argc == 4) {
 		// override config via CLI args (full mode)
-        cfg["start_run"]     = std::stoi(argv[1]);
-        cfg["end_run"]       = std::stoi(argv[2]);
-		// Note: save_to_txt is *not* settable from CLI anymore
-    } else if (argc != 2) {
+        cfg["start_run"]     = std::stoi(argv[2]);
+        cfg["end_run"]       = std::stoi(argv[3]);
+    } else{
         // throw hint on bad arg count
 		throw std::runtime_error(
-            "Expected 3 args in full mode (2 in config mode).\n"
-            "Usage (config): prog [config.json]\n"
-            "Usage (full):   prog StartRun EndRun");
+            "Expected 4 args in analysis executable.\n"
+            "Usage (full):   prog [config.json] [StartRun] [EndRun]");
     }
 
 	// populate Config object with defaults + overrides
+	c.year = cfg.value("year", 2022);
+
 	c.data_folder = cfg.value("data_folder", "../UCNtau_2022_raw_data/");
     c.output_folder = cfg.value("output_folder", "./output/");
     c.runinfo_path = cfg.value("runinfo", "./config/betteroutput2022.json");
