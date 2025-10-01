@@ -39,9 +39,9 @@ Plot_PDFs: src/File_Loader.cpp src/PDF_Lookup.cpp src/Plot_PDFs.cpp \
            include/File_Loader.h include/PDF_Lookup.h
 	$(CXX) $(CXXFLAGS) src/File_Loader.cpp src/PDF_Lookup.cpp src/Plot_PDFs.cpp -o $@ $(LDFLAGS)
 
-Results_Comp: src/File_Loader.cpp src/Results_Comp.cpp src/PDF_Global.cpp src/PDF_Lookup.cpp \
-              include/File_Loader.h include/Results_Comp.h include/PDF_Global.h include/PDF_Lookup.h
-	$(CXX) $(CXXFLAGS) src/File_Loader.cpp src/Results_Comp.cpp src/PDF_Global.cpp src/PDF_Lookup.cpp -o $@ $(LDFLAGS)
+Results_Comp: src/File_Loader.cpp src/Results_Comp.cpp src/PDF_Global.cpp src/PDF_Lookup.cpp src/Lifetime_Fit.cpp \
+              include/File_Loader.h include/Results_Comp.h include/PDF_Global.h include/PDF_Lookup.h include/Lifetime_Fit.h
+	$(CXX) $(CXXFLAGS) src/File_Loader.cpp src/Results_Comp.cpp src/PDF_Global.cpp src/PDF_Lookup.cpp src/Lifetime_Fit.cpp -o $@ $(LDFLAGS)
 
 PEcoincidences2022: src/PEcoincidences2022.C
 	$(CXX) $(CXXFLAGS) src/PEcoincidences2022.C -o $@ $(LDFLAGS)

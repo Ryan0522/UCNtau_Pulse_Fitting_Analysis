@@ -22,6 +22,7 @@
 #include <TGraph.h>
 #include <TLine.h>
 #include <THStack.h>
+#include <TGraphErrors.h>
 #include <filesystem>
 
 using namespace std;
@@ -233,7 +234,7 @@ void plot_neglog_hist(const std::vector<WindowRow>& ws_all, const std::string& o
     for (auto& kv : hmap) delete kv.second;
 }
 
-static void plot_window_sep(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix) 
+void plot_window_sep(const std::vector<WindowRow>& ws_all, const std::string& out_png_prefix) 
 {
     if (ws_all.size() < 2) return;
 
@@ -270,13 +271,13 @@ static void plot_window_sep(const std::vector<WindowRow>& ws_all, const std::str
                 if (sep < 0) std::cout << "[winsep] Overlap in seg " << seg
                                        << " at windowIndex " << W[i].windowIndex << "\n";
                 seps.push_back(sep);
-                mn = std::min(mn, sep);
+                mn = std::max(std::min(mn, sep), 1e-9);
                 mx = std::max(mx, sep);
             }
         }
-        
+
         // build log-spaced bin edges
-        int nbins = 50; // or tune
+        int nbins = 100; // or tune
         double logmin = std::log10(mn * 0.9);
         double logmax = std::log10(mx * 1.1);
         std::vector<double> edges(nbins+1);
@@ -300,8 +301,7 @@ static void plot_window_sep(const std::vector<WindowRow>& ws_all, const std::str
     delete c;
 }
 
-
-static void plot_time_ev_byNp(const std::vector<PulseRow>& pulses,
+void plot_time_ev_byNp(const std::vector<PulseRow>& pulses,
                                       const std::vector<WindowRow>& ws_all,
                                       const std::string& out_png_prefix,
                                       const Config& cfg)
@@ -535,11 +535,11 @@ void plot_obs_exp_corr(const std::vector<WindowRow>& ws_all, const std::string& 
 }
 
 // Make quick side‑by‑side ROOT histograms
-static void plot_comparisons(const std::vector<PulseRow>& pulse,
+void plot_comparisons(const std::vector<PulseRow>& pulse,
                              const std::vector<CoincRow>& coinc,
                              const std::string& out_png_prefix,
                              const Config cfg,
-                             const bool overall=false)
+                             const bool overall)
 {
     gStyle->SetOptStat(0);
     vector<string> segs = {"12","34","56","78"};
@@ -909,64 +909,77 @@ void plot_pulses_vs_coinc_by_window(const std::vector<PulseRow>& pulses,
 {
     if (windows.empty()) return;
     
-    std::map<std::string, std::vector<WindowRow>> win_by_seg;
-    for (const auto& w : windows) win_by_seg[w.segment].push_back(w);
-    for (auto& kv : win_by_seg) {
+    using RunSeg = std::pair<int, std::string>; // {run_id, "12"/"34"/...}
+
+    std::map<RunSeg, std::vector<WindowRow>> win_by_runseg;
+    for (const auto& w : windows) {
+        int run_id = w.run;
+        win_by_runseg[{run_id, w.segment}].push_back(w);
+    }
+    for (auto& kv : win_by_runseg) {
         auto& v = kv.second;
-        std::sort(v.begin(), v.end(), [](const WindowRow& a, const WindowRow& b){ return a.start < b.start; });
+        std::sort(v.begin(), v.end(), 
+                    [](const WindowRow& a, const WindowRow& b){ return a.start < b.start; });
     }
 
     struct PT { int nPulse=0, nCoinc=0; };
-    std::map<std::string, std::vector<PT>> per_seg_pts;
+    std::map<RunSeg, std::vector<PT>> per_runseg_pts;
 
-    for (auto& kv : win_by_seg) {
-        const std::string& seg = kv.first;
+    for (auto& kv : win_by_runseg) {
+        const RunSeg& rs = kv.first;
         const auto& W = kv.second;
-        per_seg_pts[seg].assign(W.size(), PT{});
+        per_runseg_pts[rs].assign(W.size(), PT{});
+    }
 
-        // Pulses
-        for (const auto& r : pulses) {
-            if (!std::get<6>(r)) continue; // Event only
-            if (std::get<1>(r) != seg) continue;
-            double t = std::get<2>(r);
-            int L = 0, R = (int)W.size();
-            while (L<R) { int M=(L+R)/2; if (W[M].start <=t) L=M+1; else R=M; }
-            int i = L-1;
-            if (i>=0 && i<(int)W.size() && in_window(t, W[i].start, W[i].end)) per_seg_pts[seg][i].nPulse++;
-        }
+    // Pulses
+    for (const auto& r : pulses){
+        if (!std::get<6>(r)) continue; // Event only
+        int run_id = std::get<0>(r);
+        const std::string& s = std::get<1>(r);
+        double t = std::get<2>(r);
 
-        // Coinc
+        RunSeg rs{run_id, s};
+        auto itW = win_by_runseg.find(rs);
+        if (itW == win_by_runseg.end()) continue;
+        const auto& W = itW->second;
 
-        int counter = 0;
-        for (const auto& r : coincs) {
-            if (!std::get<4>(r)) continue; // Event only
-            if (std::get<1>(r) != seg) continue;
-            double t = std::get<2>(r);
-            int L = 0, R = (int)W.size();
-            while (L<R) { int M=(L+R)/2; if (W[M].start <=t) L=M+1; else R=M; }
-            int i = L-1;
+        int L=0, R=(int)W.size();
+        while (L<R) { int M=(L+R)/2; if (W[M].start <= t) L=M+1; else R=M; }
+        int i = L-1;
+        if (i>=0 && i<(int)W.size() && in_window(t, W[i].start, W[i].end))
+            per_runseg_pts[rs][i].nPulse++;
+    }
 
-            auto in_win = [&](int k)->bool {
-                if (k < 0 || k >= (int)W.size()) return false;
-                return in_window(t, W[k].start, W[k].end);
-            };
-            bool binned = false;
+    // Coinc
+    for (const auto& r : coincs) {
+        if (!std::get<4>(r)) continue; // Event only
+        int run_id = std::get<0>(r);
+        const std::string& s = std::get<1>(r);
+        double t = std::get<2>(r);
 
-            if (in_win(i)) {
-                per_seg_pts[seg][i].nCoinc++;
-                binned = true;
-            } else if (in_win(i+1)) {
-                per_seg_pts[seg][i+1].nCoinc++;
-                binned = true;
-            }
+        RunSeg rs{run_id, s};
+        auto itW = win_by_runseg.find(rs);
+        if (itW == win_by_runseg.end()) continue;
+        const auto& W = itW->second;
 
-            // if (!binned) {
-            //     std::cout << std::setprecision(10) << "Not found in a window at time: " << t << "\n";
-            //     std::cout << std::setprecision(10) << "Attempted Bin: [" << W[i].start - 5e-6 << ", " << W[i].end << ")\n";
-            //     std::cout << std::setprecision(10) << "Attempted Bin 2: [" << W[i+1].start - 5e-6 << ", " << W[i+1].end << ")\n";
-            //     if (++counter > 20) throw std::runtime_error("No.");
-            // }
-        }
+        int L=0, R=(int)W.size();
+        while (L<R) { int M=(L+R)/2; if (W[M].start <= t) L=M+1; else R=M; }
+        int i = L-1;
+
+        auto in_win = [&](int k)->bool {
+            if (k < 0 || k >= (int)W.size()) return false;
+            return in_window(t, W[k].start, W[k].end);
+        };
+
+        if      (in_win(i))   per_runseg_pts[rs][i].nCoinc++;
+        else if (in_win(i+1)) per_runseg_pts[rs][i+1].nCoinc++;
+    }
+
+    std::map<std::string, std::vector<PT>> per_seg_pts;
+    for (const auto& kv : per_runseg_pts) {
+        const std::string& seg = kv.first.second;
+        const auto& vec = kv.second;
+        per_seg_pts[seg].insert(per_seg_pts[seg].end(), vec.begin(), vec.end());
     }
 
     // by segment
@@ -1100,6 +1113,7 @@ static bool load_RDE_table(const std::string& path,
     const int col_un34rde  = idx_of("Un34 RDE");
     const int col_un1112rde= idx_of("Un1112 RDE");
     const int col_un1314rde= idx_of("Un1314 RDE");
+    const int col_RHDD     = idx_of("RHDD");
 
     if (col_run < 0) { std::cerr << "[RDE] 'Run Number' column not found\n"; return false; }
 
@@ -1128,6 +1142,7 @@ static bool load_RDE_table(const std::string& path,
         if (col_un34rde   >= 0) m["34"]   = fetch(col_un34rde);
         if (col_un1112rde >= 0) m["56"] = fetch(col_un1112rde);
         if (col_un1314rde >= 0) m["78"] = fetch(col_un1314rde);
+        if (col_RHDD      >= 0) m["RHDD"] = fetch(col_RHDD);
     }
     return true;
 }
@@ -1266,6 +1281,382 @@ void plot_event_count_corr_vs_RDE(const std::vector<PulseRow>& all_pulses,
     delete c2;
 }
 
+static std::vector<double> get_pe_times_abs(const std::vector<EventList>& run_data, std::string seg, double t0, double t1) {
+    int idx = -1;
+    if      (seg == "12") idx = 0;
+    else if (seg == "34") idx = 1;
+    else if (seg == "56") idx = 2;
+    else if (seg == "78") idx = 3;
+
+    std::vector<double> peTimes;
+    if (idx < 0 || idx >= (int)run_data.size()) return peTimes;
+
+    auto& events = run_data[idx];
+    for (const auto& e : events) {
+        if (e.realtime >= t0 && e.realtime < t1) 
+            peTimes.push_back(e.realtime);
+    }
+    return peTimes;
+}
+
+void plot_disagreeing_coinc_pulses(const std::vector<PulseRow>& pulses,
+                                   const std::vector<CoincRow>& coincs,
+                                   const std::string& out_png_prefix,
+                                   const std::vector<EventList>& run_data,
+                                   double tol_us, int N_show, double span_us, double bin_us)
+{
+    const double tol = tol_us * 1e-6; // seconds
+
+    using RunSeg = std::pair<int, std::string>;
+
+    std::map<RunSeg, std::vector<double>> my_times_by_rs;
+    my_times_by_rs.clear();
+    for (const auto& r : pulses) {
+        if (!std::get<6>(r)) continue; // Event only
+        int run_id = std::get<0>(r);
+        const std::string& s = std::get<1>(r);
+        double t = std::get<2>(r);
+        my_times_by_rs[{run_id, s}].push_back(t);
+    }
+    for (auto& kv : my_times_by_rs) {
+        auto& v = kv.second;
+        std::sort(v.begin(), v.end());
+    }
+
+    struct Disagree { int run; std::string seg; double t; double abs_dt; };
+    std::vector<Disagree> disagree_all;
+    std::map<std::string, std::vector<double>> disagree_t_by_seg;
+
+    auto nearest_abs_dt = [](const std::vector<double>& v, double t)->double {
+        if (v.empty()) return std::numeric_limits<double>::infinity();
+        auto it = std::lower_bound(v.begin(), v.end(), t);
+        double dt = std::numeric_limits<double>::infinity();
+        if (it != v.end())  dt = std::min(dt, std::abs(*it - t));
+        if (it != v.begin()) dt = std::min(dt, std::abs(*(it-1) - t));
+        return dt;
+    };
+
+    for (const auto& r : coincs) {
+        if (!std::get<4>(r)) continue; // Event only
+        int run_id = std::get<0>(r);
+        const std::string& s = std::get<1>(r);
+        double t = std::get<2>(r);
+
+        RunSeg rs{run_id, s};
+        auto it = my_times_by_rs.find(rs);
+        double dt = (it == my_times_by_rs.end()) ? std::numeric_limits<double>::infinity()
+                                                 : nearest_abs_dt(it->second, t);
+        if (dt > tol) {
+            disagree_all.push_back({run_id, s, t, dt});
+            disagree_t_by_seg[s].push_back(t);
+        }
+    }
+
+    if (disagree_all.empty()) {
+        std::cerr << "[DISAGREE/PE] no disagreeing pulses.\n";
+        return;
+    }
+
+    int M = std::min<int>((int)disagree_all.size(), N_show);
+
+    // panel layout: up to 10 (2x5)
+    int nx = 2, ny = (M <= 2 ? 1 : (M <= 4 ? 2 : (M <= 6 ? 3 : (M <= 8 ? 4 : 5))));
+    if (M <= 1) nx = 1;
+
+    const double span_s = span_us * 1e-6;
+    const int nbins = std::max(1, (int)std::ceil(span_us / bin_us));
+
+    // --- multi-pad canvas with up to N_show tiles ---------------------------
+    {
+        TCanvas* c = new TCanvas("c_disagree_firstN_pe", "Disagreeing coinc: PE locations", 4800, 400*ny);
+        c->Divide(nx, ny);
+
+        for (int i = 0; i < M; ++i) {
+            const auto& d = disagree_all[i];
+            double t0 = d.t - 50e-6; // anchor at the coinc time - 50us
+            double t1 = t0 + span_s; // plot forward window; change if you want symmetric
+
+            auto pe_abs = get_pe_times_abs(run_data, d.seg, t0, t1);
+            // std::vector<double> pe_rel_us; pe_rel_us.reserve(pe_abs.size());
+            // for (double t : pe_abs) pe_rel_us.push_back(t);
+
+            c->cd(i+1); gPad->SetGrid();
+
+            TH1I* h = new TH1I(Form("h_disagree_pe_%d", i),
+                               Form("Run %d seg %s  t_{0}=%.7f s  |#Delta t|=%.3g s; t_{rel} [#mu s]; Counts per bin",
+                                    d.run, d.seg.c_str(), d.t, d.abs_dt),
+                               nbins, t0, t1);
+            for (double u : pe_abs) {
+                if (u >= t0 && u < t1) h->Fill(u);
+            }
+            h->SetLineColor(kBlack);
+            h->SetLineWidth(2);
+            h->Draw("HIST");
+
+            double ymax = h->GetMaximum() * 1.1;
+            TLine* l20 = new TLine((d.t), 0, (d.t), ymax);
+            l20->SetLineColor(kRed);
+            l20->SetLineStyle(2); // dashed
+            l20->SetLineWidth(2);
+            l20->Draw("SAME");
+        }
+
+        c->SaveAs((out_png_prefix + "_disagree_firstN_pe.png").c_str());
+        delete c;
+    }
+}
+
+static std::map<int, std::map<std::string,int>>
+count_pulses_with_threshold(const std::vector<PulseRow>& pulses,
+                            double pe_threshold)
+{
+    std::map<int, std::map<std::string,int>> counts;
+
+    bool event = false;
+    for (const auto& r : pulses) {
+        event = std::get<6>(r); // Event only
+        const double pe = std::get<3>(r);
+        if (pe < pe_threshold) continue;
+
+        const int run = std::get<0>(r);
+        const std::string& seg = std::get<1>(r);
+        if (event) ++counts[run][seg];
+        else --counts[run][seg]; // only valid because counting window = bg window
+    }
+    return counts;
+}
+
+static std::map<int, std::map<std::string,double>>
+normalize_by_rhdd(const std::map<int, std::map<std::string,int>>& counts,
+                  const std::map<int, std::map<std::string,double>>& RDE)
+{
+    std::map<int, std::map<std::string,double>> norm;
+
+    for (const auto& [run, seg_counts] : counts) {
+        double rhdd = 0.0;
+
+        if (auto itRun = RDE.find(run); itRun != RDE.end()) {
+            if (auto itRHDD = itRun->second.find("RHDD"); itRHDD != itRun->second.end()) {
+                rhdd = itRHDD->second;
+            }
+        }
+
+        if (rhdd <= 0.0) {
+            std::cerr << "[plot_lifetime] Warning: RHDD missing or <= 0 for run "
+                      << run << ". Normalized counts set to 0 (skipped would also be reasonable).\n";
+        }
+
+        for (const auto& [seg, cnt] : seg_counts) {
+            norm[run][seg] = (rhdd > 0.0) ? static_cast<double>(cnt) / rhdd : 0.0;
+        }
+    }
+    return norm;
+}
+
+void plot_lifetime(const std::vector<PulseRow>& all_pulses,
+                                  const std::string& runinfo_csv_path,
+                                  const std::string& out_png_prefix,
+                                  const json& params)
+{
+    std::map<int, std::map<std::string,double>> RDE;
+    if (!load_RDE_table(runinfo_csv_path, RDE)) return;
+
+    std::vector<std::string> segs = {"12","34","56","78"};
+    int colors[4] = {kBlue+1, kRed+1, kGreen+2, kMagenta+1};
+    const int color_overall = kBlack;
+
+    const std::string csv_counts_path = out_png_prefix + "_norm_counts_by_run_seg.csv";
+    std::ofstream csv_counts(csv_counts_path);
+    csv_counts << "PE,run,seg,norm_count,hold_time\n";
+
+    std::map<int, std::vector<std::pair<double, double>>> tau_all; // pe -> (tau, dtau) pairs (12, 34, 56, 78, ovr)
+    for(int pe_thres = 5; pe_thres < 50; ++pe_thres) {
+        auto my_counts = count_pulses_with_threshold(all_pulses, (double)pe_thres);
+        auto my_counts_norm = normalize_by_rhdd(my_counts, RDE);
+        
+        for (const auto& [run, segmap] : my_counts_norm) {
+            double ht = std::numeric_limits<double>::quiet_NaN();
+            lifefit::get_hold_time(params, run, ht); // ok if missing; stays NaN
+
+            for (const auto& seg : segs) {
+                auto it = segmap.find(seg);
+                if (it == segmap.end()) continue;
+                const double y = it->second; // RHDD-normalized net counts (event-bg)
+                if (!std::isfinite(y)) continue;
+
+                csv_counts << pe_thres << ','
+                           << run      << ','
+                           << seg      << ','
+                           << y        << ','
+                           << ht       << '\n';
+            }
+        }
+
+        auto fit_12 = lifefit::fit_tau(my_counts_norm, params, lifefit::DaggerMode::Segment, "12");
+        auto fit_34 = lifefit::fit_tau(my_counts_norm, params, lifefit::DaggerMode::Segment, "34");
+        auto fit_56 = lifefit::fit_tau(my_counts_norm, params, lifefit::DaggerMode::Segment, "56");
+        auto fit_78 = lifefit::fit_tau(my_counts_norm, params, lifefit::DaggerMode::Segment, "78");
+        auto fit_all = lifefit::fit_tau(my_counts_norm, params, lifefit::DaggerMode::Overall);
+
+        std::vector<std::pair<double,double>> row;
+        row.reserve(5);
+        row.emplace_back(fit_12.tau,  fit_12.dtau);
+        row.emplace_back(fit_34.tau,  fit_34.dtau);
+        row.emplace_back(fit_56.tau,  fit_56.dtau);
+        row.emplace_back(fit_78.tau,  fit_78.dtau);
+        row.emplace_back(fit_all.tau, fit_all.dtau);
+        
+        tau_all[pe_thres] = std::move(row);
+    }
+
+    csv_counts.close();
+    std::cout << "[plot_lifetime] Wrote normalized counts CSV: " << csv_counts_path << "\n";
+
+    // ---- prep data for graphs & CSV ----
+    std::vector<double> x12, y12, e12;
+    std::vector<double> x34, y34, e34;
+    std::vector<double> x56, y56, e56;
+    std::vector<double> x78, y78, e78;
+    std::vector<double> xAll, yAll, eAll;
+
+    for (const auto& [pe, row] : tau_all) {
+        // row indices: 0->12, 1->34, 2->56, 3->78, 4->Overall
+        if (row.size() != 5) continue;
+
+        const auto& [t12, dt12] = row[0];
+        const auto& [t34, dt34] = row[1];
+        const auto& [t56, dt56] = row[2];
+        const auto& [t78, dt78] = row[3];
+        const auto& [ta,  dta ] = row[4];
+
+        if (std::isfinite(t12) && std::isfinite(dt12)) { x12.push_back(pe); y12.push_back(t12); e12.push_back(dt12); }
+        if (std::isfinite(t34) && std::isfinite(dt34)) { x34.push_back(pe); y34.push_back(t34); e34.push_back(dt34); }
+        if (std::isfinite(t56) && std::isfinite(dt56)) { x56.push_back(pe); y56.push_back(t56); e56.push_back(dt56); }
+        if (std::isfinite(t78) && std::isfinite(dt78)) { x78.push_back(pe); y78.push_back(t78); e78.push_back(dt78); }
+        if (std::isfinite(ta ) && std::isfinite(dta )) { xAll.push_back(pe); yAll.push_back(ta ); eAll.push_back(dta ); }
+    }
+
+    // ---- write CSV ----
+    {
+        const std::string csv_path = out_png_prefix + "_tau_vs_pe.csv";
+        std::ofstream csv(csv_path);
+        csv << "PE,"
+               "tau12,dtau12,"
+               "tau34,dtau34,"
+               "tau56,dtau56,"
+               "tau78,dtau78,"
+               "tauAll,dtauAll\n";
+
+        for (const auto& [pe, row] : tau_all) {
+            const auto val = [&](size_t i)->std::pair<double,double>{
+                if (i < row.size()) return row[i];
+                return {std::numeric_limits<double>::quiet_NaN(),
+                        std::numeric_limits<double>::quiet_NaN()};
+            };
+            auto [t12, dt12] = val(0);
+            auto [t34, dt34] = val(1);
+            auto [t56, dt56] = val(2);
+            auto [t78, dt78] = val(3);
+            auto [ta,  dta ] = val(4);
+
+            csv << pe << ","
+                << t12 << "," << dt12 << ","
+                << t34 << "," << dt34 << ","
+                << t56 << "," << dt56 << ","
+                << t78 << "," << dt78 << ","
+                << ta  << "," << dta  << "\n";
+        }
+        csv.close();
+        std::cout << "[plot_lifetime] Wrote CSV: " << csv_path << "\n";
+    }
+
+    // ---- build ROOT graphs ----
+    auto make_graph = [](const std::vector<double>& xs,
+                         const std::vector<double>& ys,
+                         const std::vector<double>& es,
+                         Color_t color,
+                         Style_t mstyle,
+                         const char* title)->TGraphErrors*
+    {
+        const int n = static_cast<int>(xs.size());
+        if (n == 0) return nullptr;
+
+        // TGraphErrors wants raw pointers; vectors are contiguous
+        auto* g = new TGraphErrors(n,
+                                   const_cast<double*>(xs.data()),
+                                   const_cast<double*>(ys.data()),
+                                   nullptr, // ex = nullptr -> treated as 0
+                                   const_cast<double*>(es.data()));
+        g->SetTitle(title);
+        g->SetMarkerStyle(mstyle);
+        g->SetMarkerColor(color);
+        g->SetLineColor(color);
+        g->SetLineWidth(2);
+        return g;
+    };
+
+    TGraphErrors* g12  = make_graph(x12,  y12,  e12,  colors[0], kFullCircle,  "Seg 12");
+    TGraphErrors* g34  = make_graph(x34,  y34,  e34,  colors[1], kFullSquare,  "Seg 34");
+    TGraphErrors* g56  = make_graph(x56,  y56,  e56,  colors[2], kFullTriangleUp, "Seg 56");
+    TGraphErrors* g78  = make_graph(x78,  y78,  e78,  colors[3], kFullTriangleDown, "Seg 78");
+    TGraphErrors* gAll = make_graph(xAll, yAll, eAll, color_overall, kOpenCircle, "Overall");
+
+    // ---- draw ----
+    TCanvas* c = new TCanvas("c_tau_vs_pe", "Lifetime vs PE threshold", 1000, 700);
+    c->SetGrid();
+
+    // Frame via first available graph
+    TGraphErrors* gframe = gAll ? gAll : (g12 ? g12 : (g34 ? g34 : (g56 ? g56 : g78)));
+    if (!gframe) {
+        std::cerr << "[plot_lifetime] No valid points to draw.\n";
+        return;
+    }
+
+    // Establish reasonable axis ranges
+    double xmin =  1e9, xmax = -1e9, ymin =  1e9, ymax = -1e9;
+    auto update_range = [&](const std::vector<double>& xs, const std::vector<double>& ys, const std::vector<double>& es) {
+        for (size_t i=0;i<xs.size();++i) {
+            xmin = std::min(xmin, xs[i]);
+            xmax = std::max(xmax, xs[i]);
+            ymin = std::min(ymin, ys[i] - es[i]);
+            ymax = std::max(ymax, ys[i] + es[i]);
+        }
+    };
+    if (g12)  update_range(x12,  y12,  e12);
+    if (g34)  update_range(x34,  y34,  e34);
+    if (g56)  update_range(x56,  y56,  e56);
+    if (g78)  update_range(x78,  y78,  e78);
+    if (gAll) update_range(xAll, yAll, eAll);
+
+    // add margins
+    const double dx = (xmax > xmin) ? 0.05*(xmax-xmin) : 1.0;
+    const double dy = (ymax > ymin) ? 0.10*(ymax-ymin) : 1.0;
+
+    // Draw an empty frame using a dummy graph
+    auto* ax = new TH1F("ax",";PE threshold;Lifetime #tau", 100, xmin - dx, xmax + dx);
+    ax->SetMinimum(ymin - dy);
+    ax->SetMaximum(ymax + dy);
+    ax->Draw();
+
+    if (g12)  g12->Draw("P SAME");
+    if (g34)  g34->Draw("P SAME");
+    if (g56)  g56->Draw("P SAME");
+    if (g78)  g78->Draw("P SAME");
+    if (gAll) gAll->Draw("P SAME");
+
+    auto* leg = new TLegend(0.15, 0.70, 0.45, 0.90);
+    if (g12)  leg->AddEntry(g12,  "Seg 12", "lep");
+    if (g34)  leg->AddEntry(g34,  "Seg 34", "lep");
+    if (g56)  leg->AddEntry(g56,  "Seg 56", "lep");
+    if (g78)  leg->AddEntry(g78,  "Seg 78", "lep");
+    if (gAll) leg->AddEntry(gAll, "Overall", "lep");
+    leg->SetBorderSize(0);
+    leg->Draw();
+
+    const std::string png_path = out_png_prefix + std::string("_tau_vs_pe.png");
+    c->SaveAs(png_path.c_str());
+    std::cout << "[plot_lifetime] Saved plots:\n  " << png_path << "\n";
+}
 
 int main(int argc, char **argv) {
 	Config cfg;
@@ -1288,6 +1679,7 @@ int main(int argc, char **argv) {
 
 	init_global_pdf(cfg);
 
+    std::string data_folder = ensureTrailingSlash(cfg.data_folder);
     std::string output_folder = ensureTrailingSlash(cfg.output_folder);
     int         startrun      = cfg.start_run;
     int         endrun        = cfg.end_run;
@@ -1332,6 +1724,8 @@ int main(int argc, char **argv) {
             continue;
         } 
 
+        run_data = processfile(data_folder, run);
+
         // --- load ---
         auto pulse = load_pulse_results(z, epoch, output_folder, (int)params[run]["hold_time"]);
         auto ws = load_window_stats(z, epoch, output_folder);
@@ -1363,6 +1757,7 @@ int main(int argc, char **argv) {
         plot_obs_exp_corr(ws, out_prefix);
         plot_window_sep(ws, out_prefix);
         plot_pulses_vs_coinc_by_window(pulse, coinc, ws, out_prefix);
+        plot_disagreeing_coinc_pulses(pulse, coinc, out_prefix, run_data);
 
         gDirectory->GetList()->Clear();       // clear objects in current directory
         gROOT->GetListOfCanvases()->Clear();  // drop canvases->Reset();
@@ -1383,7 +1778,9 @@ int main(int argc, char **argv) {
     plot_obs_exp_corr(all_windows, out_prefix);
     plot_window_sep(all_windows, out_prefix);
     plot_time_ev_byNp(all_pulses, all_windows, out_prefix, cfg);
+    plot_pulses_vs_coinc_by_window(all_pulses, all_coincs, all_windows, out_prefix);
     plot_event_count_corr_vs_RDE(all_pulses, cfg.coinc_results_path, out_prefix);
+    plot_lifetime(all_pulses, cfg.coinc_results_path, out_prefix, params);
 
 	return 0;
 }

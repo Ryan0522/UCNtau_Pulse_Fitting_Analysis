@@ -19,7 +19,7 @@ static inline int round_to_index(double x, int max_index_inclusive) {
     return static_cast<int>(idx);
 }
 
-Pulse_Fitting::Pulse_Fitting(const EventList& events) : events_(events) { extractTimes(events); } // copy event.realtime to peTimes_us_ (us)
+Pulse_Fitting::Pulse_Fitting(const EventList& events, double start) : events_(events) { extractTimes(events, start); } // copy event.realtime to peTimes_us_ (us)
 
 void Pulse_Fitting::setWindow(double start_us, double stop_us) {
     // set signal window in absolute microseconds
@@ -33,15 +33,14 @@ void Pulse_Fitting::setBackgroundWindow(double start_us) {
 
 void Pulse_Fitting::analyze() { // Assume 60s is the length for both the counting and the background windows
     cout << "Segment: " << segmentId_ << endl;
-    cout << "Event size: " << peTimes_us_.size() << endl; // total PE hits loaded
+    cout << "Event size: " << global_peTimes_us_.size() << endl; // total PE hits loaded
 
-    vector<double> signalTimes = applyTimeWindow(peTimes_us_, startAfterUs_, stopAfterUs_);
-    vector<double> backgroundTimes;
-
-    if (backgroundAfterUs_ > 0)
-        backgroundTimes = applyTimeWindow(peTimes_us_, backgroundAfterUs_, backgroundAfterUs_ + 60e6);
-
+    vector<double> signalTimes = applyTimeWindow(global_peTimes_us_, startAfterUs_, stopAfterUs_);
     cout << "SignalTime PE Event size: " << signalTimes.size() << "  |  ";
+    
+    vector<double> backgroundTimes;
+    if (backgroundAfterUs_ > 0)
+        backgroundTimes = applyTimeWindow(global_peTimes_us_, backgroundAfterUs_, backgroundAfterUs_ + 60e6);
     cout << "Background PE Event size: " << backgroundTimes.size() << endl;
     
     const double bg_duration_sec = 60.0;
@@ -50,6 +49,8 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
 
     const int MAX_ITERS = 10;
     const double tolRel = 1e-2;
+    bool temp_debug = debug_;
+    debug_ = false;
 
     for (int it = 0; it < MAX_ITERS; ++it) {
         backgroundPulses_.clear();
@@ -67,6 +68,8 @@ void Pulse_Fitting::analyze() { // Assume 60s is the length for both the countin
         if (delta < tol) break; // converged
     }
     
+    debug_ = temp_debug;
+    signalTimes = applyTimeWindow(global_peTimes_us_, startAfterUs_, stopAfterUs_);
     fitRegion(signalTimes, signalPulses_); // parse windows, fit pulses
 
     cout << "SignalTime Neutron Event count: " << signalPulses_.size() << "  |  ";
@@ -103,26 +106,53 @@ vector<double> Pulse_Fitting::buildCarryExpected(double winStartUs, double binWi
     return carry;
 }
 
-void Pulse_Fitting::extractTimes(const EventList& events) {
+void Pulse_Fitting::extractTimes(const EventList& events, double start) {
     // linearize event.realtime (s) -> vector of times (us)
-    peTimes_us_.clear();
-    peChans_.clear();
-    peTimes_us_.reserve(events.size());
-    peChans_.reserve(events.size());
+    global_peTimes_us_.clear();
+    global_peChans_.clear();
+    global_peTimes_us_.reserve(events.size());
+    global_peChans_.reserve(events.size());
     
     for (const auto& e : events) {
-        peTimes_us_.push_back(e.realtime * 1e6);
-        peChans_.push_back(e.channel);
+        if (e.realtime < start) continue;
+        global_peTimes_us_.push_back(e.realtime * 1e6);
+        global_peChans_.push_back(e.channel);
     }
 }
 
 vector<double> Pulse_Fitting::applyTimeWindow(const vector<double>& times, double start, double end) {
-    vector<double> filtered_times;
-    for (double t : times) {
+    peTimes_us_.clear();
+    peChans_.clear();
+
+    struct Hit {
+        double t;
+        int ch;
+    };
+
+    vector<Hit> hits;
+    hits.reserve(times.size());
+    
+    for (size_t i = 0; i < times.size(); ++i) {
+        double t = times[i];
+        int ch = global_peChans_[i];
         if (t >= start && t < end) {
-            filtered_times.push_back(t);
+            hits.push_back({t, ch});
         }
     }
+
+    std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
+        return a.t < b.t;
+    });
+
+    vector<double> filtered_times;
+    filtered_times.reserve(hits.size());
+
+    for (const auto& h : hits) {
+        filtered_times.push_back(h.t);
+        peTimes_us_.push_back(h.t);
+        peChans_.push_back(h.ch);
+    }
+
     return filtered_times;
 }
 
@@ -136,45 +166,98 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
     double start = times[startIdx];
     int j = startIdx + 1;
 
+    // debug only //
+
+    constexpr double TARGET_US = 0 * 417.6735718 * 1e6; // <- your focus time (abs µs on the same clock as `times`)
+    constexpr double EPS_US = 1; // 1 us window
+    
+    const bool dbg_hit = std::fabs(start - TARGET_US) < EPS_US;
+
+    auto DBG = [&](auto&&... args) {
+        if (!dbg_hit) return;
+        std::cerr << std::fixed << std::setprecision(13);
+        (std::cerr << ... << args) << '\n';
+    };
+
+    DBG("[MW] startIdx=" , startIdx
+        , "  start_us=" , start
+        , "  N=" , N
+        , "  coinc=" , (use_coinc_ ? "on" : "off")
+        , "  coinc_win_us=" , coinc_win_us_
+        , "  minGap_us=" , minGap_us_);
+
     if (use_coinc_) {
         bool armed = false;
         while (j < N) {
-            double dt_seed = times[j] - times[startIdx];
-            if (dt_seed > coinc_win_us_) break;
-            if (events_[j].channel != events_[startIdx].channel) {
+            double dt_seed = abs(times[j] - times[startIdx]);
+            if (dt_seed > coinc_win_us_) {
+                DBG("  [ARM] break: dt_seed=", dt_seed, " > ", coinc_win_us_, " at j=", j);
+                break;
+            }
+
+            const int ch_i = peChans_[startIdx];
+            const int ch_j = peChans_[j];
+
+            DBG("  [ARM] j=", j, "  t[j]=", times[j],
+                "  dt_seed=", dt_seed, "  ch[i]/ch[j]=", ch_i, "/", ch_j);
+
+
+            if (peChans_[j] != peChans_[startIdx]) {
                 armed = true;
                 ++j;
+                DBG("  [ARM] ARMED at j=", j-1, "  (advance to j=", j, ")");
                 break;
             }
             ++j;
         }
         if (!armed) {
             const double t = times[startIdx];
+            DBG("  [ARM] NOT ARMED — return empty window at t=", t);
             return {0.0, startIdx + 1, t, t};
         }
         int last = j -  1;
         while (j < N) {
-            double dt_step = times[j] - times[last];
-            if (dt_step >= minGap_us_) break;
-            last = j;
+            const double dt_step = times[j] - times[last];
+            DBG("  [GROW] j=", j, " last=", last,
+                "  t[last]=", times[last], "  t[j]=", times[j],
+                "  dt_step=", dt_step);
+
+            if (dt_step >= minGap_us_) {
+                DBG("  [GROW] break: dt_step=", dt_step, " >= minGap_us_=", minGap_us_);
+                break;
+            }
             ++j;
         }
     } else {
-        while (j < N && (times[j] - times[j - 1]) <= minGap_us_) {
+        while (j < N) {
+            const double gap = times[j] - times[j - 1];
+            DBG("  [GROW-nc] j=", j, "  gap=", gap);
+            if (gap > minGap_us_) break;
             ++j;
         }
     }
 
     // previously: double end = times[j - 1]; // August 6th 2025
     // pad by minGap_us_ so the histogram includes explicit zeros after the last hit // August 10th 2025
-    const double t_last = times[j - 1];
-    const double nextHit = (j < N ? times[j] : numeric_limits<double>::infinity());
-    const double end_pad = t_last + minGap_us_;
-    const double cap_by_next = std::isfinite(nextHit) ? nextafter(nextHit, -numeric_limits<double>::infinity()) : end_pad;
+    const double t_last   = times[j - 1];
+    const double nextHit  = (j < N ? times[j] : std::numeric_limits<double>::infinity());
+    const double end_pad  = t_last + minGap_us_;
+    const double cap_by_next = std::isfinite(nextHit)
+        ? std::nextafter(nextHit, -std::numeric_limits<double>::infinity())
+        : end_pad;
     const double end = std::min(end_pad, cap_by_next);
+    const double width = end - start;
 
-    const double windowWidth = end - start;
-    return make_tuple(windowWidth, j, start, end);
+    DBG("  [END] last_idx=" , (j-1)
+        , "  t_last=" , t_last
+        , "  nextHit=" , (std::isfinite(nextHit) ? nextHit : -1.0)
+        , "  end_pad=" , end_pad
+        , "  cap_by_next=" , cap_by_next
+        , "  end=" , end
+        , "  width=" , width
+        , "  return j=" , j);
+
+    return {width, j, start, end};
 }
 
 bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double binWidth_us,
@@ -183,10 +266,16 @@ bool Pulse_Fitting::makeHistogram(const vector<double>& times, int i, double bin
 {
     // compute [startTime, endTime] window and bin hits into 'hist' with given binWidth_us
     tie(windowWidth, j, startTime, endTime) = movingWindow(times, i);
-    if (windowWidth < binWidth_us) return false;
+    if (windowWidth < binWidth_us) {
+        // cout << "Case 1 ";
+        return false;
+    }
 
     int nBins = static_cast<int>(ceil(windowWidth / binWidth_us));
-    if (nBins < 1) return false;
+    if (nBins < 1) {
+        // cout << "Case 2 "; 
+        return false;
+    }
 
     xCenters.resize(nBins);
     hist.assign(nBins, 0);
@@ -233,6 +322,8 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
         double binWidth_us = binWidth_us_;
 
         if (!makeHistogram(data_us, i, binWidth_us, windowWidth, j, startTime, endTime, hist, xCenters)) {
+            // cout << "unable to make histogram at: " << setprecision(13) << startTime / 1e6 << " to " << endTime / 1e6 << endl;
+            // if (debug_ && startTime / 1e6 >= 415) throw std::runtime_error("No....");
             i = j;
             continue;
         }
@@ -241,6 +332,7 @@ void Pulse_Fitting::fitRegion(const vector<double>& data_us,
             binWidth_us = fineBinWidth_us_;
             if (!makeHistogram(data_us, i, binWidth_us, windowWidth, j, startTime, endTime, hist, xCenters)) {
                 i = j;
+                // cout << "unable to make histogram at: " << setprecision(13) << startTime / 1e6 << " to " << endTime / 1e6 << endl;
                 continue;
             }
         }
@@ -397,7 +489,7 @@ vector<double> Pulse_Fitting::findCoincidenceSeeds(double startUs, double endUs,
         for (int j = i + 1; j < N; ++j) {
             const double tj = peTimes_us_[j];
             if (tj >= endUs) break;
-            const double dt = tj - t0;
+            const double dt = abs(tj - t0);
             if (dt > coinc_win_us_) break;
             if (!armed && peChans_[j] != ch0) armed = true;
             ++total;
@@ -491,15 +583,15 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         if (dbg) {
             std::vector<double> dbg_grad_peaks = findGradientPeaks(hist, gradThr_);
             std::cerr << "[COINC] window#" << curWindowIndex_
-                    << " start=" << startUs << "us"
-                    << " end=" << endUs << "us"
+                    << " start=" << setprecision(10) << startUs / 1e6 << "s"
+                    << " end=" << setprecision(10) << endUs / 1e6 << "s"
                     << " duration=" << (endUs - startUs) << "us"
                     << " binWidth=" << binWidth_us
                     << " pre_bins=" << pre_bins
                     << " nbins=" << xCenters.size()
                     << "\n";
 
-            std::cerr << "[";
+            std::cerr << setprecision(4) << "[";
             for (auto b : xCenters) std::cerr << b << ' ';
             std::cerr << "]\n";
 
@@ -507,14 +599,14 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
             for (auto b : hist) std::cerr << b << ' ';
             std::cerr << "]\n";
 
-            std::cerr << "[DBG] (idx (rounded), pe_Times_, pe_Time_diff (with next), PMT):";
+            std::cerr << "[DBG] (j, idx (rounded), pe_Times_, pe_Time_diff (with next), PMT):";
             for (size_t i = 0; i < peTimes_us_.size(); ++i) {
                 if (peTimes_us_[i] < startUs || peTimes_us_[i] > endUs) continue;
                 // If pe_Times_ is in bin indices, convert to absolute µs:
                 double t_us = (peTimes_us_[i] - startUs);
                 double seed_idx = pre_bins + t_us / binWidth_us;
-                double t_diff_us = peTimes_us_[i+1] - peTimes_us_[i];
-                std::cerr << " (" << seed_idx << ", " << t_us << ", " << t_diff_us << ", " << peChans_[i] << ") ";
+                double t_diff_us = abs(peTimes_us_[i+1] - peTimes_us_[i]);
+                std::cerr << " (" << i << ", " << seed_idx << ", " << t_us << ", " << t_diff_us << ", " << peChans_[i] << ") ";
             }
             std::cerr << "\n";
 
@@ -540,7 +632,7 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         int idx = p - pre_bins;
 
         if (dbg) {
-            std::cerr << "  [PEAK] raw peak at bin " << p << " -> dt guess at bin " << idx << "\n";
+            std::cerr << "  [PEAK] raw peak at bin " << dt_seed << " -> dt guess at bin " << idx << "\n";
         }
 
         if (idx < 0 || idx >= (int)hist.size()) continue;

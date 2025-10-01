@@ -32,7 +32,7 @@ struct OutlierRecord {
 
 class Pulse_Fitting {
     public:
-        Pulse_Fitting(const EventList& events);
+        Pulse_Fitting(const EventList& events, double start);
         void setBinWidths(double coarse_us, double fine_us) {
             binWidth_us_ = coarse_us > 0 ? coarse_us : binWidth_us_; 
             fineBinWidth_us_ = fine_us > 0 ? fine_us : fineBinWidth_us_; 
@@ -116,7 +116,9 @@ class Pulse_Fitting {
         double stopAfterUs_ = 1e12; // signal stop time (us)
         double backgroundAfterUs_ = 0; // bg start (us), bg end = start + 60s
         int segmentId_ = 12; // default
+        std::vector<double> global_peTimes_us_; // all PE times (us)
         std::vector<double> peTimes_us_; // all PE times (us)
+        std::vector<int> global_peChans_; // all PE channels
         std::vector<int> peChans_; // all PE channels
 
         std::pair<int, int> segChPair_ = {-1, -1};
@@ -182,7 +184,7 @@ class Pulse_Fitting {
 
         // === HELPER METHODS === //
 
-        void extractTimes(const EventList& events); // copy realtime to peTimes_
+        void extractTimes(const EventList& events, double start); // copy realtime to peTimes_
         
         std::vector<double> applyTimeWindow(const std::vector<double>& times, double start, double end); // [start, end)
         

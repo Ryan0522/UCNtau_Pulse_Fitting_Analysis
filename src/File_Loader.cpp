@@ -84,17 +84,21 @@ vector<EventList> processfile(string data_folder, string runnum) {
     tmcs_1->SetBranchAddress("realtime",&evt1.realtime);
     
     // route channels into segment lists: (1,2)->12, (3,4)->34, (11,12)->1112, (13,14)->1314
-    for (long i=0; i<tmcs_0->GetEntries();tmcs_0->GetEntry(i++))
+    Long64_t n0 = tmcs_0->GetEntries();
+	for (Long64_t i = 0; i < n0; ++i)
     {
-		if (evt0.channel == 1 or evt0.channel == 2) {PMT12.push_back(evt0);}
-		else if (evt0.channel == 3 or evt0.channel == 4) {PMT34.push_back(evt0);}
+		if (tmcs_0->GetEntry(i) <= 0) continue;
+		if (evt0.channel == 1 || evt0.channel == 2) {PMT12.push_back(evt0);}
+		else if (evt0.channel == 3 || evt0.channel == 4) {PMT34.push_back(evt0);}
 
     }
 
-    for (long j=0; j<tmcs_1->GetEntries();tmcs_1->GetEntry(j++))
+	Long64_t n1 = tmcs_1->GetEntries();
+    for (Long64_t j = 0; j < n1; j++)
     {
-        if (evt1.channel == 11 or evt1.channel == 12) {PMT1112.push_back(evt1);}
-		else if (evt1.channel == 13 or evt1.channel == 14) {PMT1314.push_back(evt1);}
+		if (tmcs_1->GetEntry(j) <= 0) continue;
+        if (evt1.channel == 11 || evt1.channel == 12) {PMT1112.push_back(evt1);}
+		else if (evt1.channel == 13 || evt1.channel == 14) {PMT1314.push_back(evt1);}
     }
 
 	// bundle into vector in fixed segment order

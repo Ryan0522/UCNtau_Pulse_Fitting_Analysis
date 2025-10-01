@@ -222,8 +222,8 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	out.setf(std::ios::fixed, std::ios::floatfield);
 	ws.setf(std::ios::fixed, std::ios::floatfield);
 
-	out << std::setprecision(9);
-	ws << std::setprecision(9);
+	out << std::setprecision(13);
+	ws << std::setprecision(13);
 
 	out << "Run number,Segment,Time (s),PE,Window Width,isFineBinWidth,Event\n";
 	ws << "Segment,Window,Start,End,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
@@ -231,7 +231,8 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
 		// run pulse fitting on each segment independently
 		// cout << "Segment: " << segment_labels[seg] << endl;
-		Pulse_Fitting fitter(run_data[seg]);
+		Pulse_Fitting fitter(run_data[seg], start);
+		
 		fitter.initFromConfig(cfg);
 		fitter.setSegmentId(seg_ids[seg]);
 		fitter.setConfigKnobs(cfg.shift_us, cfg.seed_pe_default, cfg.gradient_threshold, cfg.guard_bin);

@@ -103,9 +103,9 @@ CoincidenceList find_coincidences(EventList& l1, double coincidence_window, doub
        tj++; //tj starts as ti+1
 	//photons->Fill((*tj).realtime-(*ti).realtime);
        while (tj!=l1.end()) {
-       	//if ((*ti).realtime >= 420.08457 and (*ti).realtime <= 420.08459){
-       		//cout << setprecision(20)<<(*tj).realtime << ", " <<(*ti).realtime<< endl;
-       		//}
+       	// if ((*ti).realtime >= 410.27297 and (*ti).realtime <= 410.27299){
+       	// 	cout << setprecision(20) << "(" << (*tj).realtime << ", " << (*tj).channel << "); (" <<(*ti).realtime << ", " << (*ti).channel << ")" << endl;
+       	// }
 		   if (state == 0){
 			   if ((*tj).realtime-(*ti).realtime > coincidence_window) { //break if no PEs found within threshold
 				   break;
