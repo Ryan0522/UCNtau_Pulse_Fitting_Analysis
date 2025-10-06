@@ -28,6 +28,52 @@
 using namespace std;
 namespace fs = std::filesystem;
 
+std::ostream& operator<<(std::ostream& os, const Config& c) {
+	os << "year               = " << c.year << "\n";
+    os << "data_folder        = " << c.data_folder << "\n";
+    os << "output_folder      = " << c.output_folder << "\n";
+    os << "runinfo_path       = " << c.runinfo_path << "\n";
+    os << "good_runs_path     = " << c.good_runs_path << "\n";
+	os << "coinc_results_path = " << c.coinc_results_path << "\n";
+    os << "start_run          = " << c.start_run << "\n";
+    os << "end_run            = " << c.end_run << "\n";
+    os << "save_to_txt        = " << std::boolalpha << c.save_to_txt << "\n";
+	os << "epoch_path         = " << c.epoch_path << "\n";
+	os << "epoch              = " << c.epoch << "\n";
+
+    os << "bin_width_us       = " << c.bin_width_us << "\n";
+    os << "fine_bin_width_us  = " << c.fine_bin_width_us << "\n";
+    os << "min_gap_us         = " << c.min_gap_us << "\n";
+    os << "pdf_csv_path       = " << c.pdf_csv_path << "\n";
+    os << "good_runs_count    = " << c.good_runs_set.size() << "\n";
+
+	os << "seeding_window_us  = " << c.seeding_window_us << "\n";
+    os << "pe_min_thresh      = " << c.pe_min_thresh << "\n";
+
+    os << "shift_us           = " << c.shift_us << "\n";
+    os << "seed_pe_default    = " << c.seed_pe_default << "\n";
+    os << "gradient_threshold = " << c.gradient_threshold << "\n";
+    os << "guard_bin          = " << c.guard_bin << "\n";
+	os << "cluster_close_us   = " << c.cluster_close_us << "\n";
+
+    os << "plot_fits          = " << std::boolalpha << c.plot_fits << "\n";
+    os << "pileup_min_pulses  = " << c.pileup_min_pulses << "\n";
+
+	os << "plot_outliers      = " << std::boolalpha << c.plot_outliers << "\n";
+    os << "outlier_min_obs    = " << c.outlier_min_obs << "\n";
+    os << "outlier_ratio_low  = " << c.outlier_ratio_low << "\n";
+
+	os << "use_coinc          = " << std::boolalpha << c.use_coinc << "\n";
+	os << "coinc_win_us       = " << c.coinc_win_us << "\n";
+	os << "coinc_seed_pe_min  = " << c.coinc_seed_pe_min << "\n";
+
+	os << "debug              = " << c.debug << "\n";
+	os << "debug_window_index = " << c.debug_window_index << "\n";
+	os << "debug_segment_id   = " << c.debug_segment_id << "\n";
+
+    return os;
+}
+
 static inline std::string fmt_r(double r) {
     if (std::isnan(r)) return "n/a";
     char buf[64]; std::snprintf(buf, sizeof(buf), "%.7f", r); // 7 digits after decimal
@@ -258,7 +304,11 @@ void plot_window_sep(const std::vector<WindowRow>& ws_all, const std::string& ou
         gPad->SetLogx();
 
         const auto it = by_seg.find(seg);
+        if (it == by_seg.end()) {
+            continue;
+        }
         const auto& W = it->second;
+        if (W.size() <= 1) continue;
 
         std::vector<double> seps; seps.reserve(W.size()-1);
         double mn, mx;
@@ -1679,15 +1729,7 @@ int main(int argc, char **argv) {
 	Config cfg;
 	try {
 		cfg = load_config(argc, argv); // parse CLI/config, load runinfo + good runs
-		std::cout << "====================================" << std::endl;
-		std::cout << "Data folder: "   << cfg.data_folder   << "\n";
-        std::cout << "Output folder: " << cfg.output_folder << "\n";
-		std::cout << "Runinfo path: "  << cfg.runinfo_path  << "\n";
-		std::cout << "Good runs path: "<< cfg.good_runs_path<< "\n";
-        std::cout << "Start run: "     << cfg.start_run     << "\n";
-        std::cout << "End run: "       << cfg.end_run       << "\n";
-        std::cout << "Save to txt: "   << (cfg.save_to_txt ? "true" : "false") << "\n";
-        std::cout << "Good runs loaded: " << cfg.good_runs_set.size() << " entries\n";
+		std::cout << "\n========== Loaded Config ===========\n" << cfg << std::endl;
 		std::cout << "====================================" << std::endl;
 	} catch (const std::exception& e) {
 		cerr << "Error starting program: " << e.what() << endl;

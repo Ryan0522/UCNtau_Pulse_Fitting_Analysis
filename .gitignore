@@ -22,8 +22,9 @@ PEcoincidences2022
 *.slurm
 out/
 legacy/
-/output/2022/graphs/epoch_2/comp_coinc/individual_run/
-/output/2022/graphs/epoch_2/debug
+
+/output/**/graphs/**/comp_coinc/individual_run/
+/output/**/graphs/**/debug/
 
 # VSCode settings (optional)
 .vscode/

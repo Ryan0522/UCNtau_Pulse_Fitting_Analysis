@@ -69,7 +69,7 @@ using CoincidenceList = std::list<coincidence_event>;
 
 // a function to take two lists of times, and find coincidences
 
-CoincidenceList find_coincidences(EventList& l1, double coincidence_window, double prompt_window, double tele_window, double Npe, double* ptr_avgku, double* ptr_gammau)
+CoincidenceList find_coincidences(EventList& l1, double coincidence_window, double prompt_window, double tele_window, double Npe, double* ptr_avgku, double* ptr_gammau, std::string year)
 {
     CoincidenceList coincidences;
     auto ti = l1.begin();
@@ -221,7 +221,7 @@ CoincidenceList find_coincidences(EventList& l1, double coincidence_window, doub
     return coincidences;
 }
 
-void getunloadsbackgrounds(CoincidenceList cl, string runnum, double avgkuval, double gammauval, double run_duration, int holdtime, int filltime, int cleantime, int threshold, TH1I* ch1ch2, int segment){
+void getunloadsbackgrounds(CoincidenceList cl, string runnum, double avgkuval, double gammauval, double run_duration, int holdtime, int filltime, int cleantime, int threshold, TH1I* ch1ch2, int segment, std::string year){
 	
 	double start = filltime + holdtime + cleantime + 40;
 	double stop  = start + 60; // end of event window
@@ -265,7 +265,7 @@ void getunloadsbackgrounds(CoincidenceList cl, string runnum, double avgkuval, d
     }
     
     ofstream thisfile;
-    string outputfile = "./output/coincidences/CoincRun" + runnum + "_" + to_string(threshold) + "PEthreshold.csv";
+    string outputfile = "./output/" + year + "/coincidences/CoincRun" + runnum + "_" + to_string(threshold) + "PEthreshold.csv";
     thisfile.open(outputfile, fstream::app);
 
 	thisfile.setf(std::ios::fixed, std::ios::floatfield);
@@ -295,7 +295,7 @@ void getunloadsbackgrounds(CoincidenceList cl, string runnum, double avgkuval, d
 
 
 //TH1I* processfile(string runnum, int holdtime, int filltime, int cleantime, json params){//, TCanvas* pdf_canvas, TCanvas* pdf_canvas2){
-double processfile(json params, string runnum, int holdtime, int filltime, int cleantime, int threshold, double wc, double wp, double wt, int firstrun, int lastrun){//, TCanvas* pdf_canvas, TCanvas* pdf_canvas2){
+double processfile(json params, string runnum, int holdtime, int filltime, int cleantime, int threshold, double wc, double wp, double wt, int firstrun, int lastrun, std::string year){//, TCanvas* pdf_canvas, TCanvas* pdf_canvas2){
 
 	double start = filltime + holdtime + cleantime + 40;
 	double stop  = start + 60; // end of event window
@@ -304,7 +304,7 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
 	cout << "Start, End time for event coincidences: " << start << ", " << stop << endl;
 	cout << "Start, End time for bg coincidences: " << bg_start << ", " << bg_stop << endl;
 
-	string part1 = "../UCNtau_2022_raw_data/processed_output_";
+	string part1 = "../UCNtau_" + year + "_raw_data/processed_output_";
 	string part3 = ".root";
 	string filename = part1+runnum+part3;
 	
@@ -366,14 +366,16 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
     tmcs_1->SetBranchAddress("time",&evt1.time);
     tmcs_1->SetBranchAddress("realtime",&evt1.realtime);
     
-    event evt2;
-    tmcs_2->SetBranchAddress("channel",&evt2.channel);
-    tmcs_2->SetBranchAddress("edge",&evt2.edge);
-    tmcs_2->SetBranchAddress("tag",&evt2.tag);
-    tmcs_2->SetBranchAddress("full",&evt2.full);
-    tmcs_2->SetBranchAddress("time",&evt2.time);
-    tmcs_2->SetBranchAddress("realtime",&evt2.realtime);
-    
+	event evt2;
+	if (year == "2022") {
+		tmcs_2->SetBranchAddress("channel",&evt2.channel);
+		tmcs_2->SetBranchAddress("edge",&evt2.edge);
+		tmcs_2->SetBranchAddress("tag",&evt2.tag);
+		tmcs_2->SetBranchAddress("full",&evt2.full);
+		tmcs_2->SetBranchAddress("time",&evt2.time);
+		tmcs_2->SetBranchAddress("realtime",&evt2.realtime);
+	}
+
     //cout << "test1" << endl;
     Int_t tag_previous = 0;
     vector<double> arr;
@@ -503,7 +505,8 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
     {
 		if (evt0.realtime < start || evt0.realtime > bg_stop) continue;
 		if (evt0.channel == 1 or evt0.channel == 2) {PMT12.push_back(evt0); ch1ch2->Fill(evt0.realtime);}
-		else if (evt0.channel == 3 or evt0.channel == 4) {PMT34.push_back(evt0); ch3ch4->Fill(evt0.realtime);}
+		if (year != "2022") continue;
+		if (evt0.channel == 3 or evt0.channel == 4) {PMT34.push_back(evt0); ch3ch4->Fill(evt0.realtime);}
         if      (evt0.channel == 1) {PMT_A.push_back(evt0); ch1->Fill(evt0.realtime);} //maybe?
         else if (evt0.channel == 2) {PMT_B.push_back(evt0); ch2->Fill(evt0.realtime);}
         else if (evt0.channel == 3) {ch3->Fill(evt0.realtime);} // the ->Fill() method is used to add a count to the histogram
@@ -511,31 +514,34 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
         else if (evt0.channel == 5) ch5->Fill(evt0.realtime);
         else if (evt0.channel == 6) ch6->Fill(evt0.realtime);
     }
-    
-    for (long j=0; j<tmcs_1->GetEntries();tmcs_1->GetEntry(j++))
-    {
-		if (evt1.realtime < start || evt1.realtime > bg_stop) continue;
-        if (evt1.channel == 11 or evt1.channel == 12) {PMT1112.push_back(evt1); ch11ch12->Fill(evt1.realtime);}
-		else if (evt1.channel == 13 or evt1.channel == 14) {PMT1314.push_back(evt1); ch13ch14->Fill(evt1.realtime);}
-		if      (evt1.channel == 11) {ch11->Fill(evt1.realtime);}
-        else if (evt1.channel == 12) {ch12->Fill(evt1.realtime);}
-        else if (evt1.channel == 13) ch13->Fill(evt1.realtime);
-        else if (evt1.channel == 14) ch14->Fill(evt1.realtime);
-        else if (evt1.channel == 15) {ch15->Fill(evt1.realtime);hGV->Fill(evt1.realtime);hGV_2->Fill(evt1.realtime);}
-        else if (evt1.channel == 16) ch16->Fill(evt1.realtime);
-    }
-    
-    for (long k=0; k<tmcs_2->GetEntries();tmcs_2->GetEntry(k++))
-    {
-		if (evt2.realtime < start || evt2.realtime > bg_stop) continue;
-        if      (evt2.channel == 21) {ch21->Fill(evt2.realtime);}
-        else if (evt2.channel == 22) {ch22->Fill(evt2.realtime);}
-        else if (evt2.channel == 23) ch23->Fill(evt2.realtime);
-        else if (evt2.channel == 24) ch24->Fill(evt2.realtime);
-    }
+
+	if (year == "2022") {
+		
+		for (long j=0; j<tmcs_1->GetEntries();tmcs_1->GetEntry(j++))
+		{
+			if (evt1.realtime < start || evt1.realtime > bg_stop) continue;
+			if (evt1.channel == 11 or evt1.channel == 12) {PMT1112.push_back(evt1); ch11ch12->Fill(evt1.realtime);}
+			else if (evt1.channel == 13 or evt1.channel == 14) {PMT1314.push_back(evt1); ch13ch14->Fill(evt1.realtime);}
+			if      (evt1.channel == 11) {ch11->Fill(evt1.realtime);}
+			else if (evt1.channel == 12) {ch12->Fill(evt1.realtime);}
+			else if (evt1.channel == 13) ch13->Fill(evt1.realtime);
+			else if (evt1.channel == 14) ch14->Fill(evt1.realtime);
+			else if (evt1.channel == 15) {ch15->Fill(evt1.realtime);hGV->Fill(evt1.realtime);hGV_2->Fill(evt1.realtime);}
+			else if (evt1.channel == 16) ch16->Fill(evt1.realtime);
+		}
+		
+		for (long k=0; k<tmcs_2->GetEntries();tmcs_2->GetEntry(k++))
+		{
+			if (evt2.realtime < start || evt2.realtime > bg_stop) continue;
+			if      (evt2.channel == 21) {ch21->Fill(evt2.realtime);}
+			else if (evt2.channel == 22) {ch22->Fill(evt2.realtime);}
+			else if (evt2.channel == 23) ch23->Fill(evt2.realtime);
+			else if (evt2.channel == 24) ch24->Fill(evt2.realtime);
+		}
+	}
 
 	ofstream somefile;
-	string outfile = "./output/coincidences/PECountsRun" + runnum + ".txt";
+	string outfile = "./output/2021/coincidences/PECountsRun" + runnum + ".txt";
 	std::remove(outfile.c_str());
 	somefile.open(outfile, fstream::app);
 	auto ti = PMT12.begin();
@@ -545,27 +551,29 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
 		somefile << "12" << ", " << setprecision(15)<< PEtime << ", "<< (*ti).channel << endl;
 		ti++;
 	}
-	auto ti2 = PMT34.begin();
-	while (ti2!=PMT34.end()){
-		auto PEtime = (*ti2).realtime;
-		somefile << "34" << ", " << setprecision(15)<< PEtime << ", "<< (*ti2).channel << endl;
-		ti2++;
-	}
-	auto ti3 = PMT1112.begin();
-	while (ti3!=PMT1112.end()){
-		auto PEtime = (*ti3).realtime;
-		somefile << "56" << ", " << setprecision(15)<< PEtime << ", "<< (*ti3).channel << endl;
-		ti3++;
-	}
-	auto ti4 = PMT1314.begin();
-	while (ti4!=PMT1314.end()){
-		auto PEtime = (*ti4).realtime;
-		somefile << "78" << ", " << setprecision(15)<< PEtime << ", "<< (*ti4).channel << endl;
-		ti4++;
+	if (year == "2022") {
+		auto ti2 = PMT34.begin();
+		while (ti2!=PMT34.end()){
+			auto PEtime = (*ti2).realtime;
+			somefile << "34" << ", " << setprecision(15)<< PEtime << ", "<< (*ti2).channel << endl;
+			ti2++;
+		}
+		auto ti3 = PMT1112.begin();
+		while (ti3!=PMT1112.end()){
+			auto PEtime = (*ti3).realtime;
+			somefile << "56" << ", " << setprecision(15)<< PEtime << ", "<< (*ti3).channel << endl;
+			ti3++;
+		}
+		auto ti4 = PMT1314.begin();
+		while (ti4!=PMT1314.end()){
+			auto PEtime = (*ti4).realtime;
+			somefile << "78" << ", " << setprecision(15)<< PEtime << ", "<< (*ti4).channel << endl;
+			ti4++;
+		}
 	}
 	somefile.close();
-	
-    
+
+
     //using pointers to get avg coinc length and number of photons out of the find_coincidences fcn
     double avgku, gammau;
 	double avgku12, gammau12;
@@ -573,41 +581,53 @@ double processfile(json params, string runnum, int holdtime, int filltime, int c
 	double avgku1112, gammau1112;
 	double avgku1314, gammau1314;
     
-    //CoincidenceList cl = find_coincidences(PMT_A,PMT_B, 100.0e-9, 1000.0e-9);//20.0e-9,1000.0e-9);//100e-9, 5000e-9);
-    //int threshold = 8;
-    //find_coincidences(list, coinc window, prompt window, tele window, threshold, avg ku, gammau)
-    //was on 25 ns
-    CoincidenceList cl12 = find_coincidences(PMT12, wc, wp, wt, threshold, &avgku, &gammau);
+	CoincidenceList cl12 = find_coincidences(PMT12, wc, wp, wt, threshold, &avgku, &gammau, year);
 	avgku12 = avgku;
 	gammau12 = gammau;
-	CoincidenceList cl34 = find_coincidences(PMT34, wc, wp, wt, threshold, &avgku, &gammau);
-	avgku34 = avgku;
-	gammau34 = gammau;
-	CoincidenceList cl1112 = find_coincidences(PMT1112, wc, wp, wt, threshold, &avgku, &gammau);
-	avgku1112 = avgku;
-	gammau1112 = gammau;
-	CoincidenceList cl1314 = find_coincidences(PMT1314, wc, wp, wt, threshold, &avgku, &gammau);
-	avgku1314 = avgku;
-	gammau1314 = gammau;
 	
 	TH1D* testh = new TH1D("testh", "test; time [s]; counts", int(run_duration)*10,0.0, run_duration);
 	TFile* fout = TFile::Open("testfile.root","recreate");
  
-	string csv_filename = "./output/coincidences/CoincRun" + runnum + "_" + to_string(threshold) + "PEthreshold.csv";
+	string csv_filename = "./output/" + year + "/coincidences/CoincRun" + runnum + "_" + to_string(threshold) + "PEthreshold.csv";
 	std::remove(csv_filename.c_str());
 
  	//auto [un12, bg12, unp12, bgp12, undt12, bgdt12, unrde12, bgrde12, fillUCN12] = getunloadsbackgrounds(cl12, avgku12, gammau12, run_duration, holdtime, filltime, cleantime, threshold, ch1ch2, 12);
  	//auto [un34, bg34, unp34, bgp34, undt34, bgdt34, unrde34, bgrde34, fillUCN34] = getunloadsbackgrounds(cl34, avgku34, gammau34, run_duration, holdtime, filltime, cleantime, threshold, ch3ch4, 34);
  	//auto [un1112, bg1112, unp1112, bgp1112, undt1112, bgdt1112, unrde1112, bgrde1112, fillUCN1112] = getunloadsbackgrounds(cl1112, avgku1112, gammau1112, run_duration, holdtime, filltime, cleantime, threshold, ch11ch12, 56);
  	//auto [un1314, bg1314, unp1314, bgp1314, undt1314, bgdt1314, unrde1314, bgrde1314, fillUCN1314] = getunloadsbackgrounds(cl1314, avgku1314, gammau1314, run_duration, holdtime, filltime, cleantime, threshold, ch13ch14, 78);
-	getunloadsbackgrounds(cl12, runnum, avgku12, gammau12, run_duration, holdtime, filltime, cleantime, threshold, ch1ch2, 12);
-	getunloadsbackgrounds(cl34, runnum, avgku34, gammau34, run_duration, holdtime, filltime, cleantime, threshold, ch3ch4, 34);
-	getunloadsbackgrounds(cl1112, runnum, avgku1112, gammau1112, run_duration, holdtime, filltime, cleantime, threshold, ch11ch12, 56);
-	getunloadsbackgrounds(cl1314, runnum, avgku1314, gammau1314, run_duration, holdtime, filltime, cleantime, threshold, ch13ch14, 78);
+	getunloadsbackgrounds(cl12, runnum, avgku12, gammau12, run_duration, holdtime, filltime, cleantime, threshold, ch1ch2, 12, year);
+	
+
+
+    //CoincidenceList cl = find_coincidences(PMT_A,PMT_B, 100.0e-9, 1000.0e-9);//20.0e-9,1000.0e-9);//100e-9, 5000e-9);
+    //int threshold = 8;
+    //find_coincidences(list, coinc window, prompt window, tele window, threshold, avg ku, gammau)
+    //was on 25 ns
+
+	if (year == "2022") {
+		CoincidenceList cl34 = find_coincidences(PMT34, wc, wp, wt, threshold, &avgku, &gammau, year);
+		avgku34 = avgku;
+		gammau34 = gammau;
+		CoincidenceList cl1112 = find_coincidences(PMT1112, wc, wp, wt, threshold, &avgku, &gammau, year);
+		avgku1112 = avgku;
+		gammau1112 = gammau;
+		CoincidenceList cl1314 = find_coincidences(PMT1314, wc, wp, wt, threshold, &avgku, &gammau, year);
+		avgku1314 = avgku;
+		gammau1314 = gammau;
+
+		getunloadsbackgrounds(cl34, runnum, avgku34, gammau34, run_duration, holdtime, filltime, cleantime, threshold, ch3ch4, 34, year);
+		getunloadsbackgrounds(cl1112, runnum, avgku1112, gammau1112, run_duration, holdtime, filltime, cleantime, threshold, ch11ch12, 56, year);
+		getunloadsbackgrounds(cl1314, runnum, avgku1314, gammau1314, run_duration, holdtime, filltime, cleantime, threshold, ch13ch14, 78, year);
+	
+	}
 	
 	delete fin;	
-	fout->Close();
-	remove("testfile.root");
+	if (fout) {
+		fout->Close();
+		delete fout;
+		fout = nullptr;
+		std::remove("testfile.root");
+	}
     return 0;
 }
 	
@@ -625,9 +645,16 @@ int main(int argc, char **argv){
 	string run;
 	string hold;
 
+	std::string year = "2022";
+	if (startrun >= 21599 && endrun <= 26022) {
+		year = "2021";
+	}
+
+	std::cout << year << std::endl;
+
 	std::set<std::string> good_runs;
 	{
-		std::ifstream grf("./config/2022runlist.txt");
+		std::ifstream grf("./config/" + year + "runlist.txt");
 		std::string line;
 		while (std::getline(grf, line)) {
 			if (!line.empty()) good_runs.insert(line);
@@ -649,7 +676,7 @@ int main(int argc, char **argv){
 				int cleantime = params[run]["clean_time"];
 
 				//TH1I* ch4 = ...
-				processfile(params[run], run, holdtime, filltime, cleantime, threshold, wc, wp, wt, startrun, endrun);//, pdf_canvas, pdf_canvas2);
+				processfile(params[run], run, holdtime, filltime, cleantime, threshold, wc, wp, wt, startrun, endrun, year);//, pdf_canvas, pdf_canvas2);
 				//slopes->Fill(largestvalue);
 			}
 		//}

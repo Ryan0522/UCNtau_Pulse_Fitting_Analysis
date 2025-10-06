@@ -168,7 +168,7 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
 
     // debug only //
 
-    constexpr double TARGET_US = 0 * 417.6735718 * 1e6; // <- your focus time (abs µs on the same clock as `times`)
+    constexpr double TARGET_US = 0 * 595.3037638 * 1e6; // <- your focus time (abs µs on the same clock as `times`)
     constexpr double EPS_US = 1; // 1 us window
     
     const bool dbg_hit = std::fabs(start - TARGET_US) < EPS_US;

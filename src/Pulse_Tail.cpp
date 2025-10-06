@@ -81,7 +81,7 @@ std::vector<double> accumulateTailHistogram(
 
         for (const auto& e : run_data) {
             double t = e.realtime * 1e6; // PE time (us)
-            double dt = t - (pulse_time - 10.0); // allow dt >= -5us by shifting origin
+            double dt = t - (pulse_time - 5.0); // allow dt >= -5us by shifting origin
             if (dt >= 0 && dt < maxTime) {
                 int bin = static_cast<int>(dt / binWidth);
                 hist[bin] += 1.0;
@@ -106,7 +106,7 @@ void PlotTail(const std::vector<std::vector<double>>& tails, const std::vector<s
     }
     out << "\n";
 
-    int nBins = tails[0].size();
+    int nBins = static_cast<int>(tails[0].size());
     double binWidth = 0.01; // bin width (us) must match accumulateTailHistogram call
 
     for (int i = 0; i < nBins; ++i) {
@@ -149,20 +149,24 @@ int main(int argc, char **argv) {
 	json params = cfg.runinfo_json;
 	const std::set<std::string>& good_runs = cfg.good_runs_set;
 
-    std::vector<std::vector<double>> pulse_tails(4, vector<double>(10000, 0.0)); // 100us @ 0.01us/bin
-    int is_valid = 0;
-    std::vector<EventList> run_data;
-
     int year = cfg.year;
     int epoch_start = startrun;
 	int epoch_end = endrun;
-
     std::vector<std::string> segment_labels;
     if (year == 2022) {
         segment_labels = {"12", "34", "56", "78"};
     } else {
         segment_labels = {"12"};
     }
+
+    const size_t nSeg = segment_labels.size();
+    const int NBINS = 10000;
+    const double BINW = 0.01; // us
+
+    std::vector<std::vector<double>> pulse_tails(nSeg, vector<double>(NBINS, 0.0)); // 100us @ 0.01us/bin
+    int is_valid = 0;
+    std::vector<EventList> run_data;
+
 
 	if (epoch_json.contains(std::to_string(year))) {
 		const auto& epoch_year = epoch_json[std::to_string(year)];
@@ -189,8 +193,9 @@ int main(int argc, char **argv) {
 		}
 
         if (params.contains(run) && params[run]["run_type"] == "production") {
-            std::vector<std::vector<double>> pulse_tails_single(4, vector<double>(10000, 0.0)); // per-run accumulation
+            std::vector<std::vector<double>> pulse_tails_single(nSeg, vector<double>(NBINS, 0.0)); // per-run accumulation
             run_data = processfile(data_folder, run);
+
             if (run_data.empty()) {
                 cerr << "No data found for run " << run << ". Skipping." << endl;
                 continue;
@@ -200,7 +205,7 @@ int main(int argc, char **argv) {
             double stop = start + 60;
             double bg_start = stop + 50;
 
-            for (size_t seg = 0; seg < run_data.size(); ++seg) {
+            for (size_t seg = 0; seg < std::min(run_data.size(), nSeg); ++seg) {
                 // fit pulses on this segment to identify neutron events
                 Pulse_Fitting fitter(run_data[seg], start);
                 fitter.initFromConfig(cfg);
@@ -212,7 +217,7 @@ int main(int argc, char **argv) {
                 fitter.analyze();
 
                 auto signalPulses = fitter.getSignalPulses();
-                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], 0.01, 100.0); // 0.01us bins, 100us range
+                auto tail = accumulateTailHistogram(signalPulses, run_data[seg], BINW, 100.0); // 0.01us bins, 100us range
                 for (size_t b = 0; b < tail.size(); ++b) {
                     pulse_tails_single[seg][b] += tail[b];
                     pulse_tails[seg][b] += tail[b];
@@ -234,12 +239,12 @@ int main(int argc, char **argv) {
 
     gStyle->SetOptStat(0);
     std::vector<int> colors = {kRed, kBlue, kGreen+2, kMagenta};
-    double binWidth = 0.01;
+    double binWidth = BINW;
     int nBins = pulse_tails[0].size();
 
     std::vector<TH1D*> hists;
     hists.reserve(pulse_tails.size());
-    for (size_t seg = 0; seg < pulse_tails.size(); ++seg) {
+    for (size_t seg = 0; seg < nSeg; ++seg) {
         std::string name  = "h" + segment_labels[seg];
         std::string title = "Segment " + segment_labels[seg];
         TH1D* h = new TH1D(name.c_str(), title.c_str(), nBins, 0, nBins * binWidth);
