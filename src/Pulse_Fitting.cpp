@@ -168,7 +168,7 @@ tuple<double, int, double, double> Pulse_Fitting::movingWindow(const vector<doub
 
     // debug only //
 
-    constexpr double TARGET_US = 0 * 595.3037638 * 1e6; // <- your focus time (abs µs on the same clock as `times`)
+    constexpr double TARGET_US = 0 * 414.5715148136 * 1e6; // <- your focus time (abs µs on the same clock as `times`)
     constexpr double EPS_US = 1; // 1 us window
     
     const bool dbg_hit = std::fabs(start - TARGET_US) < EPS_US;
@@ -774,13 +774,48 @@ bool Pulse_Fitting::fitPulses(const vector<int>& hist, const vector<double>& xCe
         ++ci;
     }
     
+    std::vector<std::pair<double, double>> seeds_all;
+    seeds_all.reserve(chosenPEs.size());
+    for (size_t i = 0; i < chosenPEs.size(); ++i)  seeds_all.emplace_back(chosenDTs[i],  chosenPEs[i]);
+
     if (dbg) {
-        std::cerr << "  [SEL] chosen for global fit (size=" << chosenPEs.size() << "): ";
-        for (size_t i=0;i<chosenPEs.size();++i) std::cerr << "(" << chosenPEs[i] << "," << chosenDTs[i] << ") ";
+        std::cerr << "\n[GLOBAL FILTER] proposals before filter (size=" << seeds_all.size() << "): ";
+        for (auto& s : seeds_all) std::cerr << "(" << s.first << "," << s.second << ") ";
         std::cerr << "\n";
     }
 
-    auto r = fit_global_from_selections(prob, chosenPEs, chosenDTs, peMin, peMax, dtMin, dtMax, 200);
+    // Full-window subproblem: t0=0..nTime-1, so global dt equals local dt
+    auto full_prob = make_subproblem(prob, 0, prob.nTime - 1);
+
+    auto [best_global, kstart_global] = select_k_for_cluster(
+        full_prob,
+        seeds_all, // already in [0, T)
+        pe_min_thresh_, 300.0,
+        0.0, (double)(prob.nTime - 1),
+        kopt
+    );
+
+    std::vector<double> finalChosenPEs, finalChosenDTs;
+    if (best_global.ok) {
+        for (size_t i = 0; i < best_global.PEs.size(); ++i) {
+            finalChosenPEs.push_back(best_global.PEs[i]);
+            finalChosenDTs.push_back(best_global.DTs[i]);
+        }
+        if (dbg) {
+            std::cerr << "  [GLOBAL FILTER] OK k=" << kstart_global
+                      << " nll=" << best_global.nll << "\n";
+            for (size_t i = 0; i < best_global.PEs.size(); ++i)
+                std::cerr << "    (" << best_global.DTs[i] << "," << best_global.PEs[i] << ")\n";
+        }
+    } else {
+        finalChosenPEs = std::move(chosenPEs);
+        finalChosenDTs = std::move(chosenDTs);
+        if (dbg) std::cerr << "  [GLOBAL FILTER] failed — using pre-global proposals\n";
+    }
+
+    auto r = fit_global_from_selections(prob, finalChosenPEs, finalChosenDTs, 
+                                        peMin, peMax, dtMin, dtMax, 200);
+    
     if (!r.ok || r.PEs.empty()) return false;
 
     if (dbg) {

@@ -145,7 +145,7 @@ vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const str
         }
 
         std::stringstream ss(line);
-        string run_s, seg_s, time_s, pe_s, ww_s, fbw_s, evt_s;
+        string run_s, seg_s, time_s, pe_s, ww_s, fbw_s, evt_s, negLogL_s;
 
         if (!std::getline(ss, run_s, ',')) continue;
         if (!std::getline(ss, seg_s, ',')) continue;
@@ -154,6 +154,7 @@ vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const str
         if (!std::getline(ss, ww_s, ','))   continue;
         if (!std::getline(ss, fbw_s, ','))   continue;
         if (!std::getline(ss, evt_s, ','))   continue;
+        if (!std::getline(ss, negLogL_s, ','))   continue;
 
         int run = std::stoi(run_s);
         seg_s = trim(seg_s);
@@ -162,7 +163,9 @@ vector<PulseRow> load_pulse_results(int run_number, std::string epoch, const str
         double ww = std::stod(ww_s);
         bool fbw = trim(fbw_s) == "1"; // fbw is 1
         bool evt = trim(evt_s) == "1"; // event is 1
-        rows.emplace_back(run, seg_s, t_us, pe, ww, fbw, evt, ht);
+        double negLogL = std::stod(negLogL_s);
+        // if (negLogL < 20.0) continue; // filter low nll windows
+        rows.emplace_back(run, seg_s, t_us, pe, ww, fbw, evt, negLogL, ht);
     }
     return rows;
 }
@@ -413,7 +416,7 @@ void plot_time_ev_byNp(const std::vector<PulseRow>& pulses,
     for (const auto& r : pulses) {
         if (!std::get<6>(r)) continue;  // Event only
         const std::string& seg = std::get<1>(r);
-        int ht = (int)std::get<7>(r);
+        int ht = (int)std::get<8>(r);
         auto itA = HT_ANCHOR.find(ht);
         if (itA == HT_ANCHOR.end()) continue;
 
@@ -616,6 +619,21 @@ void plot_comparisons(const std::vector<PulseRow>& pulse,
             leg->SetBorderSize(0);
             leg->SetFillStyle(0);
             leg->Draw();
+            
+            // ---- Save histogram data to CSV ----
+            std::string csv_name = out_png_prefix + "_PE_seg" + seg + ".csv";
+            std::ofstream csv(csv_name);
+            csv << "PE_bin_center,PulseAnalysis_Counts,LaraCoincidence_Counts\n";
+
+            int nbins = h_pulse->GetNbinsX();
+            for (int b = 1; b <= nbins; ++b) {
+                double x = h_pulse->GetBinCenter(b);
+                double y_pulse = h_pulse->GetBinContent(b);
+                double y_coinc = h_coinc->GetBinContent(b);
+                csv << x << "," << y_pulse << "," << y_coinc << "\n";
+            }
+            csv.close();
+            std::cout << "Saved: " << csv_name << std::endl;
         }
         c->SaveAs((out_png_prefix + "_PE_overlay.png").c_str());
         delete c;
@@ -768,7 +786,7 @@ void plot_comparisons(const std::vector<PulseRow>& pulse,
         auto mk_event_rel_pulse = [&](optional<int> only_ht) {
             return [&, only_ht](const PulseRow& r)->optional<double> {
                 if (!std::get<6>(r)) return nullopt;        // event only
-                int ht = (int)std::get<7>(r);
+                int ht = (int)std::get<8>(r);
                 if (only_ht && ht != *only_ht) return nullopt;
                 double t_rel = std::get<2>(r) - anchor_for_ht(ht);
                 if (t_rel < 0.0 || t_rel >= 60.0) return nullopt;
@@ -790,7 +808,7 @@ void plot_comparisons(const std::vector<PulseRow>& pulse,
         auto mk_bg_rel_pulse = [&](optional<int> only_ht) {
             return [&, only_ht](const PulseRow& r)->optional<double> {
                 if (std::get<6>(r)) return nullopt;         // background only
-                int ht = (int)std::get<7>(r);
+                int ht = (int)std::get<8>(r);
                 if (only_ht && ht != *only_ht) return nullopt;
                 double t_rel = std::get<2>(r) - anchor_for_ht(ht) - 110.0; // 110.0 is bg_start - start
                 if (t_rel < 0.0 || t_rel >= 60.0) return nullopt; // BG window
@@ -1352,6 +1370,106 @@ static std::vector<double> get_pe_times_abs(const std::vector<EventList>& run_da
     return peTimes;
 }
 
+void plot_disagreeing_pulses_not_in_coinc(const std::vector<PulseRow>& pulses,
+                                          const std::vector<CoincRow>& coincs,
+                                          const std::string& out_png_prefix,
+                                          const std::vector<EventList>& run_data,
+                                          double tol_us, int N_show, double span_us, double bin_us)
+{
+    const double tol = tol_us * 1e-6; // seconds
+    using RunSeg = std::pair<int, std::string>;
+    
+    std::map<RunSeg, std::vector<double>> coinc_times_by_rs;
+    for (const auto& r : coincs) {
+        if (!std::get<4>(r)) continue; // Event only
+        int run_id = std::get<0>(r);
+        const std::string& s = std::get<1>(r);
+        double t = std::get<2>(r);
+        coinc_times_by_rs[{run_id, s}].push_back(t);
+    }
+    for (auto& kv : coinc_times_by_rs) std::sort(kv.second.begin(), kv.second.end());
+
+    auto nearest_abs_dt = [](const std::vector<double>& v, double t)->double {
+        if (v.empty()) return std::numeric_limits<double>::infinity();
+        auto it = std::lower_bound(v.begin(), v.end(), t);
+        double dt = std::numeric_limits<double>::infinity();
+        if (it != v.end())   dt = std::min(dt, std::abs(*it - t));
+        if (it != v.begin()) dt = std::min(dt, std::abs(*(it-1) - t));
+        return dt;
+    };
+
+    struct Disagree { int run; std::string seg; double t; double abs_dt; };
+    std::vector<Disagree> disagree_all;
+
+    for (const auto& r : pulses) {
+        if (!std::get<6>(r)) continue; // Event only
+        int run_id = std::get<0>(r);
+        const std::string& s = std::get<1>(r);
+        double t = std::get<2>(r);
+
+        RunSeg rs{run_id, s};
+        auto it = coinc_times_by_rs.find(rs);
+        double dt = (it == coinc_times_by_rs.end())
+                    ? std::numeric_limits<double>::infinity()
+                    : nearest_abs_dt(it->second, t);
+        if ((dt > tol) && std::get<7>(r) >= 20.0) { // Filter nll < 20.0 windows
+            disagree_all.push_back({run_id, s, t, dt});
+        }
+    }
+
+    if (disagree_all.empty()) {
+        std::cerr << "[DISAGREE/MINE] no PulseAnalysis-only pulses (beyond tolerance).\n";
+        return;
+    }
+
+    // How many to show
+    int M = std::min<int>((int)disagree_all.size(), N_show);
+
+    // panel layout (mirror of the other function)
+    int nx = 2, ny = (M <= 2 ? 1 : (M <= 4 ? 2 : (M <= 6 ? 3 : (M <= 8 ? 4 : 5))));
+    if (M <= 1) nx = 1;
+
+    const double span_s = span_us * 1e-6;
+    const int nbins = std::max(1, (int)std::ceil(span_us / bin_us));
+
+    TCanvas* c = new TCanvas("c_disagree_firstN_mine",
+                             "Disagreeing pulses: PulseAnalysis-only",
+                             4800, 400*ny);
+    c->Divide(nx, ny);
+
+    for (int i = 0; i < M; ++i) {
+        const auto& d = disagree_all[i];
+        double t0 = d.t - 50e-6;
+        double t1 = t0 + span_s;
+
+        auto pe_abs = get_pe_times_abs(run_data, d.seg, t0, t1);
+
+        c->cd(i+1); gPad->SetGrid();
+
+        TH1I* h = new TH1I(Form("h_disagree_mine_%d", i),
+                           Form("Run %d seg %s  t_{0}=%.7f s  |#Delta t| to nearest coinc=%.3g s; t [s]; Counts per bin",
+                                d.run, d.seg.c_str(), d.t, d.abs_dt),
+                           nbins, t0, t1);
+
+        for (double u : pe_abs) {
+            if (u >= t0 && u < t1) h->Fill(u);
+        }
+        h->SetLineColor(kBlack);
+        h->SetLineWidth(2);
+        h->Draw("HIST");
+
+        double ymax = h->GetMaximum() * 1.1;
+        TLine* lp = new TLine(d.t, 0, d.t, ymax);
+        lp->SetLineColor(kBlue+1);
+        lp->SetLineStyle(2);
+        lp->SetLineWidth(2);
+        lp->Draw("SAME");
+    }
+
+    c->SaveAs((out_png_prefix + "_disagree_firstN_mine.png").c_str());
+    delete c;
+}
+
 void plot_disagreeing_coinc_pulses(const std::vector<PulseRow>& pulses,
                                    const std::vector<CoincRow>& coincs,
                                    const std::string& out_png_prefix,
@@ -1457,6 +1575,93 @@ void plot_disagreeing_coinc_pulses(const std::vector<PulseRow>& pulses,
         c->SaveAs((out_png_prefix + "_disagree_firstN_pe.png").c_str());
         delete c;
     }
+}
+
+void plot_pe_time_hists_for_dense_windows(const std::vector<WindowRow>& windows,
+                                          const std::vector<PulseRow>& pulses,
+                                          const std::vector<EventList>& run_data,
+                                          const std::string& out_png_prefix,
+                                          int min_events, int N_show, double bin_us)
+{
+    struct WPick { int run; std::string seg; int widx; int nPulses; double start; double end; };
+    vector<WPick> picks;
+    picks.reserve(windows.size());
+    for (const auto& w : windows) {
+        if (w.nPulses >= min_events) {
+            picks.push_back({w.run, w.segment, w.windowIndex, w.nPulses, w.start, w.end});
+        }
+    }
+    if (picks.empty()) {
+        std::cerr << "[dense-win] No windows with > " << min_events << " pulses.\n";
+        return;
+    }
+
+    const int M = std::min<int>((int)picks.size(), N_show);
+    int nx = 2, ny = (M <= 2 ? 1 : (M <= 4 ? 2 : (M <= 6 ? 3 : (M <= 8 ? 4 : 5))));
+    if (M <= 1) nx = 1;
+
+    TCanvas* c = new TCanvas("c_dense_windows_pe",
+                             Form("PE time hist for windows with > %d events", min_events),
+                             4800, 400*ny);
+    c->Divide(nx, ny);
+
+    for (int i = 0; i < M; ++i) {
+        const auto& d = picks[i];
+        const double t0 = d.start - 20e-6;
+        const double t1 = d.end;
+        const double span_s = std::max(t1 - t0, 1e-9);
+
+        const double bin_s = std::max(bin_us * 1e-6, 1e-9);
+        const int nbins = std::max(1, (int)std::ceil(span_s / bin_s));
+
+        auto pe_abs = get_pe_times_abs(run_data, d.seg, t0, t1);
+
+        std::vector<double> pe_rel_us; pe_rel_us.reserve(pe_abs.size());
+        for (double t : pe_abs) pe_rel_us.push_back((t - t0) * 1e6);
+
+        c->cd(i+1);
+        gPad->SetGrid();
+
+        TH1I* h = new TH1I(Form("h_dense_pe_%d", i),
+                           Form("Run %d seg %s  win #%d  nPulses=%d; t_{rel} [#mu s]; Counts/bin",
+                                d.run, d.seg.c_str(), d.widx, d.nPulses),
+                           nbins, 0.0, span_s * 1e6);
+        for (double u : pe_rel_us) {
+            if (u >= 0.0 && u < span_s * 1e6) h->Fill(u);
+        }
+        h->SetLineColor(kBlack);
+        h->SetLineWidth(2);
+        h->Draw("HIST");
+
+        const double ymax = h->GetMaximum() * 1.1;
+        TLine* l0 = new TLine(0.0, 0.0, 0.0, ymax);
+        l0->SetLineColor(kGray+2); l0->SetLineStyle(2); l0->SetLineWidth(2); l0->Draw("SAME");
+        TLine* l1 = new TLine(span_s * 1e6, 0.0, span_s * 1e6, ymax);
+        l1->SetLineColor(kGray+2); l1->SetLineStyle(2); l1->SetLineWidth(2); l1->Draw("SAME");
+    
+        std::vector<double> fit_rel_us;
+        for (const auto& p : pulses) {
+            if (!std::get<6>(p)) continue; // Event only
+            int run = std::get<0>(p);
+            const string& seg = std::get<1>(p);
+            double t = std::get<2>(p);
+            if (run == d.run && seg == d.seg && t >= t0 && t < t1)
+                fit_rel_us.push_back((t - t0) * 1e6);
+        }
+
+        for (double u : fit_rel_us) {
+            if (u < 0.0 || u >= span_s * 1e6) continue;
+            TLine* lt = new TLine((u), 0, (u), ymax*1.10);
+            lt->SetLineColor(kRed);
+            lt->SetLineStyle(2); // dashed
+            lt->SetLineWidth(2);
+            lt->Draw("SAME");
+        }
+    }
+
+    const std::string fname = out_png_prefix + Form("_denseWindows_gt%d_peTime.png", min_events);
+    c->SaveAs(fname.c_str());
+    delete c;
 }
 
 static std::map<int, std::map<std::string,int>>
@@ -1820,7 +2025,12 @@ int main(int argc, char **argv) {
         plot_obs_exp_corr(ws, out_prefix);
         plot_window_sep(ws, out_prefix);
         plot_pulses_vs_coinc_by_window(pulse, coinc, ws, out_prefix);
+        plot_disagreeing_pulses_not_in_coinc(pulse, coinc, out_prefix, run_data);
         plot_disagreeing_coinc_pulses(pulse, coinc, out_prefix, run_data);
+
+        // Save dense windows in a separate folder
+        out_prefix = output_folder + "graphs/epoch_" + epoch + "/comp_coinc/dense_windows/run_" + run;
+        plot_pe_time_hists_for_dense_windows(ws, pulse, run_data, out_prefix);
 
         gDirectory->GetList()->Clear();       // clear objects in current directory
         gROOT->GetListOfCanvases()->Clear();  // drop canvases->Reset();

@@ -11,7 +11,7 @@
 using json = nlohmann::json;
 
 // PulseAnalysis_<run>.csv rows: Segment(string), Time(us)(double), PE(double)
-using PulseRow = std::tuple<int, std::string, double, double, double, bool, bool, int>; // (run, seg, time_us, pe, window_width, is_fineBin, is_Event, holding time)
+using PulseRow = std::tuple<int, std::string, double, double, double, bool, bool, double, int>; // (run, seg, time_us, pe, window_width, is_fineBin, is_Event, negLogL, holding time)
 // Coincidence rows: segment(string), time(s)(double), N(int)
 using CoincRow = std::tuple<int, std::string, double, int, bool, int>;    // (run, seg, time_s, pe, is_event, holding time)
 
@@ -62,6 +62,20 @@ void plot_disagreeing_coinc_pulses(const std::vector<PulseRow>& pulses,
                                    const std::vector<EventList>& run_data,
                                    double tol_us = 5.0, int N_show = 10, 
                                    double span_us = 100.0, double bin_us = 0.50);
+
+void plot_disagreeing_pulses_not_in_coinc(const std::vector<PulseRow>& pulses,
+                                          const std::vector<CoincRow>& coincs,
+                                          const std::string& out_png_prefix,
+                                          const std::vector<EventList>& run_data,
+                                          double tol_us=5.0, int N_show=10, double span_us=100.0, double bin_us=0.50);
+
+void plot_pe_time_hists_for_dense_windows(const std::vector<WindowRow>& windows,
+                                          const std::vector<PulseRow>& pulses,
+                                          const std::vector<EventList>& run_data,
+                                          const std::string& out_png_prefix,
+                                          int min_events = 6,    // "more than or equal to 6" -> use 6 here (>=)
+                                          int N_show = 12,       // max number of windows to display
+                                          double bin_us = 0.5);   // histogram bin width (microseconds)
 
 void plot_lifetime(const std::vector<PulseRow>& all_pulses,
                                   const std::string& runinfo_csv_path,

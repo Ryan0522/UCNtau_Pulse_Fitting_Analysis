@@ -12,6 +12,7 @@
 #include <TLegend.h>
 #include <TStyle.h>
 #include <filesystem>
+#include <unordered_map>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -233,7 +234,7 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 	out << std::setprecision(13);
 	ws << std::setprecision(13);
 
-	out << "Run number,Segment,Time (s),PE,Window Width,isFineBinWidth,Event\n";
+	out << "Run number,Segment,Time (s),PE,Window Width,isFineBinWidth,Event,neglogL\n";
 	ws << "Segment,Window,Start,End,BinWidth_us,nPulses,neglogL,N_obs,N_model\n";
 
 	for (size_t seg = 0; seg < run_data.size(); ++seg) {
@@ -288,27 +289,38 @@ void analysis_setup(const vector<EventList> run_data, json params, string output
 		auto signalPulses = fitter.getSignalPulses();
 		auto backgroundPulses = fitter.getBackgroundPulses();
 		const auto& stats = fitter.getWindowStats();
+
+		std::unordered_map<int, const WindowStat*> stat_by_win;
+		stat_by_win.reserve(stats.size());
+		for (const auto& s : stats) stat_by_win[s.windowIndex] = &s;
 		
 		// write signal pulsese (Event=1)
 		for (const auto& event : signalPulses) {
+			const int widx = std::get<2>(event);
+        	const double nll = (stat_by_win.count(widx) ? -stat_by_win[widx]->logL : std::numeric_limits<double>::quiet_NaN());
 			out << params["run_number"] << "," // run number
 				<< segment_labels[seg] << "," // Segment
 				<< get<0>(event)/1e6 << "," // event time (us)
 				<< get<1>(event) << "," // PE count
 				<< get<3>(event) << "," // WindowWidth
 				<< get<5>(event) << "," // binWidth (1) or fineBinWidth (0)
-				<< "1\n";
+				<< "1," // Event=1
+				<< nll << "\n"; // negLogL
 		}
 
 		// write background pulses (Event=0)
 		for (const auto& event : backgroundPulses) {
+			const int widx = std::get<2>(event);
+        	const double nll = (stat_by_win.count(widx) ? -stat_by_win[widx]->logL : std::numeric_limits<double>::quiet_NaN());
 			out << params["run_number"] << ","
 				<< segment_labels[seg] << ","
 				<< get<0>(event)/1e6 << ","
 				<< get<1>(event) << ","
 				<< get<3>(event) << ","
 				<< get<5>(event) << ","
-				<< "0\n";
+				<< "0,"
+				<< nll << ","
+				<< "\n";
 		}
 
 		// write window statistics (Event only)

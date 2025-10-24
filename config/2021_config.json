@@ -14,7 +14,7 @@
     "binWidth": 0.5,
     "fineBinWidth": 0.01,
     "minGap": 20,
-    "pdf_csv_path": "./config/2022_tails/2022_epoch_2_tail_response.csv",
+    "pdf_csv_path": "./config/2021_tails/2021_epoch_1_tail_response.csv",
 
     "seeding_window_us": 0.01,
     "pe_min_thresh": 5.0,
